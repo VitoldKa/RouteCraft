@@ -1,0 +1,10 @@
+[package]
+name = "RouteCraft"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+# "compat", "cookies"
+actix-web = { version = "4.11.0", features = [ "macros", "unicode" ] }
+actix-files = "0.6"
+tokio = { version = "1", features = ["full"] }
