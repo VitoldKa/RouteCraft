@@ -31,18 +31,19 @@ FROM rust:alpine AS backend-builder
 ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
-RUN apk add --no-cache musl-dev build-base pkgconfig
-
 WORKDIR /usr/src/app/backend
+
+RUN apk add --no-cache musl-dev build-base pkgconfig
 
 # Copy Cargo files to take advantage of Docker cache
 COPY backend/Cargo.toml backend/Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release
+RUN mkdir -p src && echo "fn main() { println!(\"cache dummy app\"); }" > src/main.rs
+RUN cargo build --release --target x86_64-unknown-linux-musl
 RUN rm -rf src
 
 # Copy the real code after the cache
 COPY backend/ ./
+RUN touch src/main.rs
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
 
