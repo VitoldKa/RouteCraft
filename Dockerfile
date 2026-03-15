@@ -7,10 +7,6 @@ FROM node:22-alpine AS frontend-builder
 ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
-WORKDIR /usr/src/app/data
-
-RUN node build.js
-
 WORKDIR /usr/src/app/frontend
 
 # Copy only the files necessary for npm cache
@@ -72,4 +68,4 @@ COPY --from=frontend-builder /usr/src/app/backend/static /app/static
 
 EXPOSE 8080
 
-CMD ["./backend"]
+CMD ["./RouteCraft"]
