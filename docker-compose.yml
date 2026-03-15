@@ -1,0 +1,14 @@
+services:
+  web:
+    image: "RouteCraft"
+    networks:
+      - shared_network
+    restart: always
+    logging:
+      options:
+        max-size: "1m"
+        max-file: "5"
+
+networks:
+  shared_network:
+    external: true
