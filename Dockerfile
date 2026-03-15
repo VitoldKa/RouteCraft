@@ -1,4 +1,3 @@
-
 ############################
 # Step 1 : frontend builder
 ############################
@@ -20,31 +19,39 @@ RUN npm run build
 
 
 ############################
-# Step 2 : backend builder
+# Step 2 : Rust chef base
 ############################
-FROM rust:alpine AS backend-builder
-
-ARG APP_VERSION
-ENV APP_VERSION=$APP_VERSION
-
-WORKDIR /usr/src/app/backend
+FROM rust:alpine AS chef
 
 RUN apk add --no-cache musl-dev build-base pkgconfig
+RUN cargo install cargo-chef
 
-# Copy Cargo files to take advantage of Docker cache
-COPY backend/Cargo.toml backend/Cargo.lock ./
-RUN mkdir -p src && echo "fn main() { println!(\"cache dummy app\"); }" > src/main.rs
-RUN cargo build --release --target x86_64-unknown-linux-musl
-RUN rm -rf src
-
-# Copy the real code after the cache
-COPY backend/ ./
-RUN touch src/main.rs
-RUN cargo build --release --target x86_64-unknown-linux-musl
+WORKDIR /app
 
 
 ############################
-# Step 3 : Final image
+# Step 3 : planner
+############################
+FROM chef AS planner
+
+COPY backend/ ./
+RUN cargo chef prepare --recipe-path recipe.json
+
+
+############################
+# Step 4 : builder
+############################
+FROM chef AS builder
+
+COPY --from=planner /app/recipe.json recipe.json
+
+RUN cargo chef cook --release  --recipe-path recipe.json
+COPY backend/ ./
+RUN cargo build --release --bin RouteCraft
+
+
+############################
+# Step 5 : Final image
 ############################
 FROM alpine:latest
 
@@ -62,7 +69,7 @@ LABEL org.opencontainers.image.title="RouteCraft" \
     org.opencontainers.image.created=$BUILD_DATE \
     org.opencontainers.image.source=$GIT_URL
 
-COPY --from=backend-builder /usr/src/app/backend/target/x86_64-unknown-linux-musl/release/RouteCraft /app/RouteCraft
+COPY --from=builder /app/target/release/RouteCraft /app/RouteCraft
 
 COPY --from=frontend-builder /usr/src/app/backend/static /app/static
 
