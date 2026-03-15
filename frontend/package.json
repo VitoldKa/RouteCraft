@@ -1,0 +1,29 @@
+{
+  "name": "route-craft",
+  "version": "0.0.0",
+  "main": "index.js",
+  "scripts": {
+    "prettier": "prettier --check src test",
+    "webpack": "webpack --config webpack.prod.js",
+    "webpack_dev": "webpack --mode development",
+    "build_debug": "npm run webpack_dev",
+    "build": "npm run webpack",
+    "watch": "webpack --watch --config webpack.dev.js"
+  },
+  "author": "Vitold Kapshitzer",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "copy-webpack-plugin": "^13.0.1",
+    "css-loader": "^7.1.2",
+    "css-minimizer-webpack-plugin": "^7.0.2",
+    "html-inline-css-webpack-plugin": "^1.11.2",
+    "html-webpack-plugin": "^5.6.4",
+    "json-minimizer-webpack-plugin": "^5.0.1",
+    "mini-css-extract-plugin": "^2.9.4",
+    "prettier": "^3.4.2",
+    "style-loader": "^4.0.0",
+    "to-string-loader": "^1.2.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
