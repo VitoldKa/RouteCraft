@@ -1,73 +1,107 @@
 # Routecraft
 
-**Operational transit route editor using OpenStreetMap data**, designed for planning and engineering workflows in public transport.
+![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)
+![Status](https://img.shields.io/badge/status-active%20development-orange)
+![OSM](https://img.shields.io/badge/data-OpenStreetMap-lightgrey)
 
-> **Not a passenger navigation app.** Routecraft is built for transit planners, operations teams and GIS engineers needing to define realistic service paths on the real network, including depots, yards, service roads and restricted access sections.
+**Operational transit route editor using OpenStreetMap data**, designed for planning, operations, and GIS workflows.
+
+Routecraft enables defining **realistic service paths on the real network** — including depots, yards, service roads, terminal loops, and restricted-access infrastructure.
+
+> ⚠️ **Not a passenger navigation app.**  
+> Routecraft is for **operational path definition**, not turn-by-turn routing.
 
 ---
 
 ## 🚦 Motivation
 
-Public transit often requires routing over infrastructure that is *not* available to standard navigation engines:
+Public transport operations often rely on infrastructure that standard navigation engines cannot use:
 
-- access-only depot roads
-- service roads & maintenance tracks
-- parking/HOV/TOD areas
-- terminal loops
-- bus-only corridors
-- trolleybus wire alignments
-- tram/rail rights-of-way
-- temporary detours and construction bypasses
+- depot access roads  
+- service and maintenance roads  
+- terminal loops  
+- bus-only corridors  
+- private access segments  
+- trolleybus alignments  
+- tram / rail rights-of-way  
+- temporary detours and construction bypasses  
 
-Traditional routing engines reject these paths due to legal or traffic restrictions.  
-Routecraft focuses on **topology** rather than **traffic legality**, enabling **unrestricted operational routing**.
+Traditional routing engines optimize for **legal access and traffic rules**.  
+Routecraft instead focuses on **topology and operational reality**, allowing planners to work directly with the full OSM network.
+
+---
+
+## 🧠 Core Concept
+
+A Routecraft route is a sequence of **OSM way segments**, defined by node pairs:
+
+```json
+[
+  { "wayId": 123456, "fromNode": 111, "toNode": 222 },
+  { "wayId": 789012, "fromNode": 222, "toNode": 333 }
+]
+````
+
+This makes routes:
+
+* reproducible
+* lightweight
+* easy to serialize
+* reconstructable from OSM
+* suitable for editing, auditing, and simulation
 
 ---
 
 ## ✨ Features
 
-- 🗺 **OSM-based network graph**
-- 🎯 **Manual routing on ways** (hover → segment)
-- ⛓ **Continuity mode** (force shared nodes between segments)
-- ↕️ **Unrestricted routing** across private/service/depot ways
-- ✍️ **Segment selection**
-  - click = segment between intersections
-  - ctrl-click = full way
-- 💾 **Persistent caching (IndexedDB)**
-  - ways
-  - nodes
-  - bbox -> wayIds index
-- 📤 **JSON import/export**
-- 🔍 **Viewer mode** (static route display)
-- 🔧 **Web components** (no framework required)
-- 🧩 **Modular architecture** for integration
+* 🗺 **OSM-based network graph**
+* ✍️ **Manual route editing on OSM ways**
+* 🎯 **Segment-level selection**
+
+  * click → segment between intersections
+  * ctrl-click → full way
+* ⛓ **Continuity mode**
+
+  * enforce shared nodes between segments
+* 🚫 **Operational routing without access filtering**
+
+  * works across service, depot, and private ways
+* 💾 **Persistent caching (IndexedDB)**
+
+  * ways
+  * nodes
+  * bbox → way index
+* 📤 **JSON import/export**
+* 🔍 **Viewer mode** (read-only)
+* 🧩 **Framework-free Web Components**
+* 🔌 **Modular architecture**
 
 ---
 
-## 🚌 Use cases
+## 🚌 Use Cases
 
-Routecraft is useful for:
+Routecraft is designed for:
 
-- Public transit agencies (bus, tram, trolley, BRT)
-- Service planning / replanning
-- Detour engineering (accidents, construction)
-- Depot & yard access routing
-- GIS network modeling
-- On-demand transit design (DRT)
-- Simulation & research
-- Urban mobility consulting
+* public transit agencies
+* bus / tram / trolleybus / BRT operations
+* detour engineering
+* depot and yard access routing
+* GIS network modeling
+* demand-responsive transport (DRT)
+* simulation and research
+* mobility consulting
 
-Example scenarios:
+### Example scenarios
 
-- Define a **bus loop inside a depot**
-- Add a **layover segment on a private access road**
-- Model a **tram run along a mixed right-of-way**
-- Define a **temporary detour around construction**
-- Trace the **out-of-service path** between depot and terminal
+* define a **bus loop inside a depot**
+* add a **layover on a private access road**
+* model a **tram path along mixed right-of-way**
+* create a **temporary detour**
+* trace an **out-of-service route** between depot and terminal
 
 ---
 
-## 🧱 Architecture (high-level)
+## 🧱 Architecture
 
 ```
            ┌───────────────────────┐
@@ -97,48 +131,29 @@ Example scenarios:
 
 ---
 
-## 🗂 Data model
+## 🗂 Project Structure
 
-Routecraft represents a route as **segments of OSM ways**:
-
-```json
-[
-  { "wayId": 123456, "fromNode": 111, "toNode": 222 },
-  { "wayId": 789012, "fromNode": 222, "toNode": 333 }
-]
+```
+src/
+├── osm-map.js        # map UI + interaction
+├── osm-cache.js      # IndexedDB cache layer
+├── route-editor.js   # editor logic + import/export
+├── index.html        # full editor
+└── view.html         # viewer mode
 ```
 
-Where:
-
-* `wayId` = OSM way identifier
-* `fromNode` / `toNode` = OSM node identifiers defining the segment
-
-This allows reconstructing geometry from OSM on demand.
-
 ---
 
-## 🧩 Components (technical)
+## 📦 Installation
 
-* `osm-map.js` → map UI + selection
-* `osm-cache.js` → IndexedDB persistent cache
-* `route-editor.js` → JSON import/export + UI glue
-* `view.html` → viewer-only mode
-* `index.html` → full editor UI
-
-No framework required — pure Web Components.
-
----
-
-## 📦 Installation & Dev
-
-Clone:
+Clone the repository:
 
 ```sh
 git clone https://github.com/YOUR_ORG/routecraft.git
 cd routecraft
 ```
 
-Serve statically (IndexedDB requires http://):
+Serve locally (required for IndexedDB):
 
 ```sh
 npx serve .
@@ -146,7 +161,7 @@ npx serve .
 python -m http.server 8080
 ```
 
-Open:
+Open in browser:
 
 ```
 http://localhost:8080/src/index.html
@@ -154,15 +169,41 @@ http://localhost:8080/src/index.html
 
 ---
 
+## 🐳 Build & Deployment
+
+### Build (local machine)
+
+```sh
+docker build -t routecraft --output=type=docker .
+docker buildx build --platform linux/amd64 -t routecraft --output=type=docker .
+
+docker save routecraft -o dist/routecraft.tar
+rsync -avz dist/routecraft.tar ubuntu@example.net:/home/ubuntu/routecraft/
+```
+
+### Deploy (server)
+
+```sh
+sudo docker compose stop
+sudo docker compose rm
+sudo docker image rm routecraft
+sudo docker image rm routecraft:amd64
+
+sudo docker load -i routecraft.tar
+sudo docker compose up -d
+```
+
+---
+
 ## 🛰 Overpass API
 
-Routecraft uses Overpass to fetch:
+Routecraft fetches:
 
 * `highway=*` ways
 * their nodes
-* metadata (tags)
+* associated metadata
 
-Minimal example query:
+Example query:
 
 ```overpass
 [out:json][timeout:90];
@@ -178,28 +219,28 @@ out skel qt;
 
 ## 💾 Caching
 
-To avoid repeated Overpass queries:
+### IndexedDB stores
 
-| Cache      | IndexedDB store | Key                 |
-| ---------- | --------------- | ------------------- |
-| ways       | `ways`          | wayId               |
-| nodes      | `nodes`         | nodeId              |
-| bbox index | `bboxes`        | `z{zoom}_{s,w,n,e}` |
+| Cache      | Store  | Key               |
+| ---------- | ------ | ----------------- |
+| ways       | ways   | wayId             |
+| nodes      | nodes  | nodeId            |
+| bbox index | bboxes | z{zoom}_{s,w,n,e} |
 
-TTL defaults:
+### TTL
 
 | Data       | TTL      |
 | ---------- | -------- |
-| way / node | 7 days   |
+| ways/nodes | 7 days   |
 | bbox index | 24 hours |
 
 ---
 
 ## 📤 Import / Export
 
-### Export JSON
+### Export
 
-Press **Export** to retrieve route:
+Click **Export**:
 
 ```json
 [
@@ -207,42 +248,67 @@ Press **Export** to retrieve route:
 ]
 ```
 
-### Import JSON
+### Import
 
-Paste JSON and press **Import**, cache auto-hydrates.
-
----
-
-## 🔒 Notes & Limitations
-
-* Routecraft does **not** validate legal access tags
-* Not intended for **passenger navigation**
-* Requires Overpass availability
-* Large areas may hit Overpass timeouts (cache mitigates this)
+Paste JSON → click **Import**
+Missing geometry is automatically fetched and cached.
 
 ---
 
-## 📜 Licensing & Attribution
+## ⚠️ Limitations
 
-Map data © [OpenStreetMap](https://www.openstreetmap.org/) contributors, licensed under ODbL.
+* no validation of legal access restrictions
+* not intended for passenger navigation
+* depends on Overpass API availability
+* large queries may timeout
+* relies on OSM topology quality
 
-Routecraft source code is licensed under **GPLv3** (unless specified otherwise).
-See the LICENSE file for details.
+---
+
+## 🛣 Roadmap
+
+* GTFS integration
+* depot / yard modeling tools
+* tram & rail enhancements
+* topology validation
+* offline mode
+* richer metadata
+* detour/version management
+* simulation exports
+
+---
+
+## 📜 License
+
+* Map data © OpenStreetMap contributors (ODbL)
+* Code licensed under **GPLv3**
+
+See `LICENSE` for details.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions welcome!
+Contributions are welcome.
 
-Useful areas:
+Areas of interest:
 
 * transit data integration (GTFS)
-* OSM tagging improvements
+* OSM tagging workflows
 * depot/yard modeling
-* rail & tram enhancements
+* rail & tram support
 * UI/UX improvements
-* caching strategies
-* offline routing
+* caching & performance
+* offline capabilities
 
-Feel free to open an issue or PR.
+Open an issue or PR to get started.
+
+---
+
+## ⭐ Acknowledgements
+
+* OpenStreetMap contributors
+* Overpass API
+* Leaflet.js ecosystem
+
+---
