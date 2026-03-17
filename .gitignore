@@ -3,3 +3,4 @@ data
 backend/target
 backend/static
 frontend/node_modules
+dist/
