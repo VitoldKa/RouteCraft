@@ -31,24 +31,6 @@ module.exports = merge(common, {
 		}),
 
 		new HtmlInlineCSSWebpackPlugin(),
-
-		new CopyWebpackPlugin({
-			patterns: [
-				{
-					from: path.resolve(__dirname, '../data/**/*.json'),
-					to({ context, absoluteFilename }) {
-						const relPath = path.relative(
-							path.resolve(__dirname, 'src'),
-							absoluteFilename
-						)
-						return relPath
-					},
-					transform(content) {
-						return JSON.stringify(JSON.parse(content.toString()))
-					},
-				},
-			],
-		}),
 	],
 
 	optimization: {
