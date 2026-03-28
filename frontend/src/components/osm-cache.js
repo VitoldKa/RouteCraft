@@ -7,7 +7,7 @@
 // - bboxes: { key, wayIds: number[], contentTiles: string[], fetchedAt: number }
 
 const DB_NAME = 'osm-spatial-cache'
-const DB_VERSION = 3
+const DB_VERSION = 4
 let _dbPromise = null
 
 function openDB() {
@@ -28,7 +28,8 @@ function openDB() {
 			}
 
 			if (!db.objectStoreNames.contains('bboxes')) {
-				db.createObjectStore('bboxes', { keyPath: 'key' })
+				const store = db.createObjectStore('bboxes', { keyPath: 'key' })
+				store.createIndex('fetchedAt', 'fetchedAt')
 			}
 		}
 
@@ -284,43 +285,43 @@ export async function clearAll() {
  * @param {number} maxEntries ex: 5000
  */
 export async function pruneBBoxes(maxEntries = 5000) {
-	const limit = Number(maxEntries)
-	if (!Number.isInteger(limit) || limit <= 0) return
-
 	const db = await openDB()
 	const tx = db.transaction(['bboxes'], 'readwrite')
 	const store = tx.objectStore('bboxes')
+	const index = store.index('fetchedAt')
 
-	const all = await new Promise((resolve) => {
-		const res = []
-		const c = store.openCursor()
-
-		c.onsuccess = () => {
-			const cur = c.result
-			if (!cur) return resolve(res)
-
-			const row = normalizeBBoxRow(cur.value)
-			if (row) res.push(row)
-
-			cur.continue()
-		}
-
-		c.onerror = () => resolve(res)
+	let count = await new Promise((resolve) => {
+		const r = store.count()
+		r.onsuccess = () => resolve(r.result || 0)
+		r.onerror = () => resolve(0)
 	})
 
-	const rows = all.filter(Boolean)
-
-	if (rows.length <= limit) {
+	if (count <= maxEntries) {
 		await txDone(tx)
 		return
 	}
 
-	rows.sort((a, b) => (a.fetchedAt || 0) - (b.fetchedAt || 0))
-	const toDelete = rows.slice(0, rows.length - limit)
+	const toDelete = count - maxEntries
 
-	for (const row of toDelete) {
-		await deleteOne(store, row.key)
-	}
+	let deleted = 0
+
+	await new Promise((resolve) => {
+		const cursorReq = index.openCursor() // oldest first
+
+		cursorReq.onsuccess = () => {
+			const cursor = cursorReq.result
+			if (!cursor || deleted >= toDelete) {
+				resolve()
+				return
+			}
+
+			store.delete(cursor.primaryKey)
+			deleted++
+			cursor.continue()
+		}
+
+		cursorReq.onerror = () => resolve()
+	})
 
 	await txDone(tx)
 }
