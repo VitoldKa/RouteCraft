@@ -64,15 +64,9 @@ This makes routes:
 
   * enforce shared nodes between segments
 * 🚫 **Operational routing without access filtering**
-
-  * works across service, depot, and private ways
 * 💾 **Persistent caching (IndexedDB)**
-
-  * ways
-  * nodes
-  * bbox → way index
 * 📤 **JSON import/export**
-* 🔍 **Viewer mode** (read-only)
+* 🔍 **Viewer mode**
 * 🧩 **Framework-free Web Components**
 * 🔌 **Modular architecture**
 
@@ -82,22 +76,26 @@ This makes routes:
 
 Routecraft is designed for:
 
-* public transit agencies
-* bus / tram / trolleybus / BRT operations
-* detour engineering
-* depot and yard access routing
-* GIS network modeling
-* demand-responsive transport (DRT)
-* simulation and research
-* mobility consulting
+- public transit agencies
+- bus / tram / trolleybus / BRT operations
+- depot and yard routing
+- detour engineering
+- GIS network modeling
+- demand-responsive transport (DRT)
+- simulation and research
+- mobility consulting
+
+---
 
 ### Example scenarios
 
-* define a **bus loop inside a depot**
-* add a **layover on a private access road**
-* model a **tram path along mixed right-of-way**
-* create a **temporary detour**
-* trace an **out-of-service route** between depot and terminal
+- define a **bus loop inside a depot**
+- route a vehicle through a **private access road**
+- model a **tram alignment on mixed infrastructure**
+- create a **temporary detour due to construction**
+- trace an **out-of-service route** (depot → terminal)
+- design a **turnaround loop at a terminus**
+- simulate **non-public infrastructure usage**
 
 ---
 
@@ -109,20 +107,18 @@ Routecraft is designed for:
            │  (Web Components)     │
            └────────────┬──────────┘
                         │
-        hover/select    │   draw
                         ↓
              ┌────────────────────┐
              │   OSM Map Engine   │
              │    (Leaflet.js)    │
              └─────────┬──────────┘
                        │
-              query    │   ingest
                        ↓
       ┌─────────────────────────────────┐
-      │    Overpass API (OSM network)   │
+      │   Static Spatial Cache (JSON)   │
+      │  bbox-index + content-tiles     │
       └─────────────────────────────────┘
                        │
-            cache      │   persist
                        ↓
       ┌─────────────────────────────────┐
       │ IndexedDB (ways, nodes, bboxes) │
@@ -131,37 +127,139 @@ Routecraft is designed for:
 
 ---
 
+## ⚙️ C++ Pipeline (OSM → Spatial Cache)
+
+```
+        ┌──────────────────────────────┐
+        │   planet.osm.pbf / region    │
+        └────────────┬─────────────────┘
+                     │
+                     ▼
+      ┌──────────────────────────────┐
+      │ phase1_spatial_index (C++)   │
+      │ - filter highways/rail       │
+      │ - build bbox index           │
+      │ - assign ways → tiles        │
+      └────────────┬─────────────────┘
+                   │
+                   ▼
+      ┌──────────────────────────────┐
+      │ intermediate (NDJSON / tmp)  │
+      └────────────┬─────────────────┘
+                   │
+                   ▼
+      ┌──────────────────────────────┐
+      │ phase2_spatial_compact (C++) │
+      │ - group tiles                │
+      │ - pack ways + nodes          │
+      │ - deduplicate nodes          │
+      └────────────┬─────────────────┘
+                   │
+                   ▼
+      ┌────────────────────────────────────────┐
+      │ spatial_cache/                         │
+      │ ├── bbox-index/                        │
+      │ └── content-tiles/                     │
+      └────────────────────────────────────────┘
+```
+
+---
+
+## 🛰 Data Source
+
+Routecraft uses **preprocessed OpenStreetMap data**, built offline into a spatial cache.
+
+Pipeline:
+
+1. Download OSM data (`.osm.pbf`)
+2. Process with C++ tools
+3. Generate:
+
+   * `bbox-index/` (bbox → way IDs + content tiles)
+   * `content-tiles/` (ways + nodes)
+
+👉 No runtime dependency on Overpass
+👉 No external API calls
+👉 Fully offline-capable
+
+---
+
+## ⚡ Performance
+
+Routecraft is designed for **high-performance spatial interaction**:
+
+* no runtime Overpass queries
+* static JSON delivery (CDN-friendly)
+* IndexedDB for instant access
+* spatial tiling minimizes data transfer
+
+Workflow:
+
+1. first load → fetch tiles
+2. subsequent loads → fully local
+
+👉 near-zero latency after warm cache
+
+---
+
+## 💾 Caching
+
+### 1. Static spatial cache
+
+| Layer         | Description                 |
+| ------------- | --------------------------- |
+| bbox-index    | maps bbox → way IDs + tiles |
+| content-tiles | contains full ways + nodes  |
+
+---
+
+### 2. Browser HTTP cache
+
+* long-lived (immutable)
+* avoids re-downloading JSON
+
+---
+
+### 3. IndexedDB
+
+| Store  | Key    | Content               |
+| ------ | ------ | --------------------- |
+| ways   | wayId  | nodes + tags          |
+| nodes  | nodeId | lat/lon               |
+| bboxes | key    | wayIds + contentTiles |
+
+---
+
 ## 🗂 Project Structure
 
 ```
 src/
-├── osm-map.js        # map UI + interaction
-├── osm-cache.js      # IndexedDB cache layer
-├── route-editor.js   # editor logic + import/export
-├── index.html        # full editor
-└── view.html         # viewer mode
+├── osm-map.js
+├── osm-cache.js
+├── route-editor.js
+├── index.html
+└── view.html
+
+scripts/
+├── phase1_spatial_index.cpp
+├── phase2_spatial_compact.cpp
+
+spatial_cache/
+├── bbox-index/
+└── content-tiles/
 ```
 
 ---
 
 ## 📦 Installation
 
-Clone the repository:
-
 ```sh
-git clone https://github.com/YOUR_ORG/routecraft.git
+git clone https://github.com/VitoldKa/RouteCraft
 cd routecraft
-```
-
-Serve locally (required for IndexedDB):
-
-```sh
 npx serve .
-# or
-python -m http.server 8080
 ```
 
-Open in browser:
+Open:
 
 ```
 http://localhost:8080/src/index.html
@@ -171,17 +269,61 @@ http://localhost:8080/src/index.html
 
 ## 🐳 Build & Deployment
 
-### Build (local machine)
+### Data
+
+```sh
+https://planet.openstreetmap.org/planet/planet-latest.osm.bz2
+osmium cat planet-latest.osm.bz2 -o planet.osm.pbf
+```
+
+or:
+
+```sh
+https://download.geofabrik.de/europe/switzerland-latest.osm.pbf
+```
+
+---
+
+### Build C++
+
+```sh
+g++ -O3 -std=c++17 scripts/phase1_spatial_index.cpp \
+  -I$(brew --prefix libosmium)/include \
+  -I$(brew --prefix protozero)/include \
+  -I$(brew --prefix expat)/include \
+  -L$(brew --prefix bzip2)/lib \
+  -L$(brew --prefix zlib)/lib \
+  -L$(brew --prefix expat)/lib \
+  -lbz2 -lz -lexpat \
+  -o dist/phase1_spatial_index
+
+g++ -O3 -std=c++17 scripts/phase2_spatial_compact.cpp \
+  -o dist/phase2_spatial_compact
+```
+
+---
+
+### Run pipeline
+
+```sh
+dist/phase1_spatial_index data/switzerland.osm.pbf
+dist/phase2_spatial_compact
+```
+
+---
+
+### Docker
 
 ```sh
 docker build -t routecraft --output=type=docker .
+or
 docker buildx build --platform linux/amd64 -t routecraft --output=type=docker .
 
 docker save routecraft -o dist/routecraft.tar
 rsync -avz dist/routecraft.tar ubuntu@example.net:/home/ubuntu/routecraft/
 ```
 
-### Deploy (server)
+Deploy:
 
 ```sh
 sudo docker compose stop
@@ -192,47 +334,6 @@ sudo docker image rm routecraft:amd64
 sudo docker load -i routecraft.tar
 sudo docker compose up -d
 ```
-
----
-
-## 🛰 Overpass API
-
-Routecraft fetches:
-
-* `highway=*` ways
-* their nodes
-* associated metadata
-
-Example query:
-
-```overpass
-[out:json][timeout:90];
-(
-  way["highway"](bbox);
-);
-out body;
->;
-out skel qt;
-```
-
----
-
-## 💾 Caching
-
-### IndexedDB stores
-
-| Cache      | Store  | Key               |
-| ---------- | ------ | ----------------- |
-| ways       | ways   | wayId             |
-| nodes      | nodes  | nodeId            |
-| bbox index | bboxes | z{zoom}_{s,w,n,e} |
-
-### TTL
-
-| Data       | TTL      |
-| ---------- | -------- |
-| ways/nodes | 7 days   |
-| bbox index | 24 hours |
 
 ---
 
@@ -250,30 +351,25 @@ Click **Export**:
 
 ### Import
 
-Paste JSON → click **Import**
-Missing geometry is automatically fetched and cached.
+* paste JSON → click **Import**
 
 ---
 
 ## ⚠️ Limitations
 
-* no validation of legal access restrictions
-* not intended for passenger navigation
-* depends on Overpass API availability
-* large queries may timeout
-* relies on OSM topology quality
+* no legal access validation
+* depends on OSM data quality
+* large datasets require preprocessing
 
 ---
 
 ## 🛣 Roadmap
 
 * GTFS integration
-* depot / yard modeling tools
+* depot / yard modeling
 * tram & rail enhancements
 * topology validation
-* offline mode
-* richer metadata
-* detour/version management
+* offline-first improvements
 * simulation exports
 
 ---
@@ -283,32 +379,25 @@ Missing geometry is automatically fetched and cached.
 * Map data © OpenStreetMap contributors (ODbL)
 * Code licensed under **GPLv3**
 
-See `LICENSE` for details.
-
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome.
+Contributions welcome:
 
-Areas of interest:
-
-* transit data integration (GTFS)
-* OSM tagging workflows
-* depot/yard modeling
-* rail & tram support
-* UI/UX improvements
-* caching & performance
+* transit data integration
+* performance optimization
+* UI/UX
+* spatial indexing
 * offline capabilities
-
-Open an issue or PR to get started.
+* delta update of spacial data
 
 ---
 
 ## ⭐ Acknowledgements
 
 * OpenStreetMap contributors
-* Overpass API
-* Leaflet.js ecosystem
+* libosmium
+* Leaflet.js
 
 ---
