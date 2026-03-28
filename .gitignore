@@ -2,6 +2,7 @@
 data
 backend/target
 backend/static
+backend/spatial_cache
 frontend/node_modules
 dist/
 tmp_spatial/

@@ -73,6 +73,8 @@ COPY --from=builder /app/target/release/RouteCraft /app/RouteCraft
 
 COPY --from=frontend-builder /usr/src/app/backend/static /app/static
 
+COPY ./spatial_cache /app/spatial_cache
+
 EXPOSE 8080
 
 CMD ["./RouteCraft"]

@@ -10,6 +10,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             // Serve static files from the ./static directory at /
             .wrap(middleware::DefaultHeaders::new().add(("Cache-Control", "public, max-age=60")))
+            .service(Files::new("/spatial_cache", "./spatial_cache"))
             .service(Files::new("/", "./static").index_file("index.html"))
     })
     .bind(("0.0.0.0", port))?
