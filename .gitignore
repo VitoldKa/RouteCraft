@@ -4,5 +4,5 @@ backend/target
 backend/static
 frontend/node_modules
 dist/
-tmp_ndjson/
-final_cache/
+tmp_spatial/
+spatial_cache/

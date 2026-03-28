@@ -1,5 +1,5 @@
 /*
-g++ -O3 -std=c++17 phase1_split_ndjson.cpp \
+g++ -O3 -std=c++17 phase1_spatial_index.cpp \
   -I$(brew --prefix libosmium)/include \
   -I$(brew --prefix protozero)/include \
   -I$(brew --prefix expat)/include \
@@ -7,11 +7,9 @@ g++ -O3 -std=c++17 phase1_split_ndjson.cpp \
   -L$(brew --prefix zlib)/lib \
   -L$(brew --prefix expat)/lib \
   -lbz2 -lz -lexpat \
-  -o phase1_split_ndjson
-
+  -o phase1_spatial_index
 */
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -22,11 +20,10 @@ g++ -O3 -std=c++17 phase1_split_ndjson.cpp \
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
-#include <osmium/handler/node_locations_for_ways.hpp>
 #include <osmium/handler.hpp>
+#include <osmium/handler/node_locations_for_ways.hpp>
 #include <osmium/index/map/sparse_mem_array.hpp>
 #include <osmium/io/any_input.hpp>
 #include <osmium/tags/taglist.hpp>
@@ -37,11 +34,12 @@ namespace fs = std::filesystem;
 struct Config
 {
     std::string input_file;
-    std::string out_dir = "tmp_ndjson";
+    std::string out_dir = "tmp_spatial";
     std::string tag = "building";
     std::string tag_value;
     bool has_tag_value = false;
-    double tile_size = 0.02;
+    double bbox_size = 0.01;
+    double tile_size = 0.05;
     int precision = 5;
     std::size_t flush_every = 20000;
 };
@@ -145,7 +143,7 @@ static std::string json_escape(std::string_view s)
     return out;
 }
 
-static std::string format_coord(double v, int precision)
+static std::string fmt(double v, int precision)
 {
     std::ostringstream oss;
     oss.setf(std::ios::fixed);
@@ -154,12 +152,21 @@ static std::string format_coord(double v, int precision)
     return oss.str();
 }
 
-static std::string bbox_key(double south, double west, double north, double east, int precision)
+static std::string bbox_key(double s, double w, double n, double e, int precision)
 {
-    return format_coord(south, precision) + "," +
-           format_coord(west, precision) + "," +
-           format_coord(north, precision) + "," +
-           format_coord(east, precision);
+    return fmt(s, precision) + "," + fmt(w, precision) + "," +
+           fmt(n, precision) + "," + fmt(e, precision);
+}
+
+static std::string tile_key(double lat, double lon, double size, int precision)
+{
+    const long yi = static_cast<long>(std::floor(lat / size));
+    const long xi = static_cast<long>(std::floor(lon / size));
+    const double s = yi * size;
+    const double w = xi * size;
+    const double n = s + size;
+    const double e = w + size;
+    return bbox_key(s, w, n, e, precision);
 }
 
 static std::string key_to_filename(const std::string &key)
@@ -169,13 +176,9 @@ static std::string key_to_filename(const std::string &key)
     for (char c : key)
     {
         if (c == ',')
-        {
             out += "__";
-        }
         else
-        {
             out.push_back(c);
-        }
     }
     return out;
 }
@@ -200,7 +203,6 @@ static std::string serialize_way_json(
     }
 
     s += "],\"tags\":{";
-
     bool first = true;
     for (const auto &tag : tags)
     {
@@ -213,29 +215,40 @@ static std::string serialize_way_json(
         s += json_escape(tag.value());
         s += "\"";
     }
-
     s += "}}\n";
     return s;
 }
 
-static std::string serialize_node_json(std::uint64_t node_id, double lat, double lon)
+static std::string serialize_node_json(std::uint64_t id, double lat, double lon)
 {
     std::string s;
     s.reserve(96);
     s += "{\"id\":";
-    s += std::to_string(node_id);
+    s += std::to_string(id);
     s += ",\"lat\":";
-    s += format_coord(lat, 7);
+    s += fmt(lat, 7);
     s += ",\"lon\":";
-    s += format_coord(lon, 7);
+    s += fmt(lon, 7);
     s += "}\n";
     return s;
 }
 
-struct TileBuffer
+static std::string serialize_bbox_ref_json(std::uint64_t way_id, const std::string &content_tile_key)
 {
-    std::string ways_blob;
-    std::string nodes_blob;
+    std::string s;
+    s.reserve(96 + content_tile_key.size());
+    s += "{\"wayId\":";
+    s += std::to_string(way_id);
+    s += ",\"contentTile\":\"";
+    s += content_tile_key;
+    s += "\"}\n";
+    return s;
+}
+
+struct BlobPair
+{
+    std::string a;
+    std::string b;
 };
 
 class BufferedAppender
@@ -243,48 +256,30 @@ class BufferedAppender
 public:
     explicit BufferedAppender(std::string out_dir) : out_dir_(std::move(out_dir))
     {
-        fs::create_directories(out_dir_);
+        fs::create_directories(fs::path(out_dir_) / "bbox_index");
+        fs::create_directories(fs::path(out_dir_) / "content_tiles");
     }
 
-    void add(const std::string &key, const std::string &way_line, const std::string &nodes_blob)
+    void add_bbox_ref(const std::string &bbox_key_s, const std::string &ref_line)
     {
-        auto &buf = buffers_[key];
-        buf.ways_blob += way_line;
-        buf.nodes_blob += nodes_blob;
+        auto &buf = bbox_buffers_[bbox_key_s];
+        buf.a += ref_line;
+    }
+
+    void add_content_way_and_nodes(
+        const std::string &tile_key_s,
+        const std::string &way_line,
+        const std::string &nodes_blob)
+    {
+        auto &buf = tile_buffers_[tile_key_s];
+        buf.a += way_line;
+        buf.b += nodes_blob;
     }
 
     void flush()
     {
-        if (buffers_.empty())
-            return;
-
-        std::size_t touched = 0;
-        for (auto &[key, buf] : buffers_)
-        {
-            const std::string base = key_to_filename(key);
-            const fs::path ways_path = fs::path(out_dir_) / (base + ".ways.ndjson");
-            const fs::path nodes_path = fs::path(out_dir_) / (base + ".nodes.ndjson");
-
-            {
-                std::ofstream fw(ways_path, std::ios::binary | std::ios::app);
-                if (!fw)
-                    throw std::runtime_error("Impossible d'ouvrir " + ways_path.string());
-                fw.write(buf.ways_blob.data(), static_cast<std::streamsize>(buf.ways_blob.size()));
-            }
-
-            {
-                std::ofstream fn(nodes_path, std::ios::binary | std::ios::app);
-                if (!fn)
-                    throw std::runtime_error("Impossible d'ouvrir " + nodes_path.string());
-                fn.write(buf.nodes_blob.data(), static_cast<std::streamsize>(buf.nodes_blob.size()));
-            }
-
-            ++touched;
-        }
-
-        buffers_.clear();
-        ++flush_count_;
-        std::cerr << "Flush #" << flush_count_ << ": " << touched << " bboxes ecrites\n";
+        flush_bbox_refs();
+        flush_content_tiles();
     }
 
     ~BufferedAppender()
@@ -299,16 +294,55 @@ public:
     }
 
 private:
+    void flush_bbox_refs()
+    {
+        for (auto &[key, buf] : bbox_buffers_)
+        {
+            const fs::path path = fs::path(out_dir_) / "bbox_index" /
+                                  (key_to_filename(key) + ".refs.ndjson");
+            std::ofstream out(path, std::ios::binary | std::ios::app);
+            if (!out)
+                throw std::runtime_error("Impossible d'ouvrir " + path.string());
+            out.write(buf.a.data(), static_cast<std::streamsize>(buf.a.size()));
+        }
+        bbox_buffers_.clear();
+    }
+
+    void flush_content_tiles()
+    {
+        for (auto &[key, buf] : tile_buffers_)
+        {
+            const std::string base = key_to_filename(key);
+
+            const fs::path ways_path = fs::path(out_dir_) / "content_tiles" / (base + ".ways.ndjson");
+            const fs::path nodes_path = fs::path(out_dir_) / "content_tiles" / (base + ".nodes.ndjson");
+
+            {
+                std::ofstream out(ways_path, std::ios::binary | std::ios::app);
+                if (!out)
+                    throw std::runtime_error("Impossible d'ouvrir " + ways_path.string());
+                out.write(buf.a.data(), static_cast<std::streamsize>(buf.a.size()));
+            }
+            {
+                std::ofstream out(nodes_path, std::ios::binary | std::ios::app);
+                if (!out)
+                    throw std::runtime_error("Impossible d'ouvrir " + nodes_path.string());
+                out.write(buf.b.data(), static_cast<std::streamsize>(buf.b.size()));
+            }
+        }
+        tile_buffers_.clear();
+    }
+
     std::string out_dir_;
-    std::unordered_map<std::string, TileBuffer> buffers_;
-    std::size_t flush_count_ = 0;
+    std::unordered_map<std::string, BlobPair> bbox_buffers_;
+    std::unordered_map<std::string, BlobPair> tile_buffers_;
 };
 
 class SplitHandler : public osmium::handler::Handler
 {
 public:
-    SplitHandler(const Config &cfg, BufferedAppender &appender)
-        : cfg_(cfg), appender_(appender) {}
+    SplitHandler(const Config &cfg, BufferedAppender &writer)
+        : cfg_(cfg), writer_(writer) {}
 
     void way(const osmium::Way &way)
     {
@@ -329,7 +363,7 @@ public:
         std::string node_blob;
         node_blob.reserve(way.nodes().size() * 64);
 
-        bool have_bbox = false;
+        bool have_geom = false;
         double min_lat = 0.0, max_lat = 0.0, min_lon = 0.0, max_lon = 0.0;
 
         for (const auto &nr : way.nodes())
@@ -343,11 +377,11 @@ public:
             const double lat = loc.lat();
             const double lon = loc.lon();
 
-            if (!have_bbox)
+            if (!have_geom)
             {
                 min_lat = max_lat = lat;
                 min_lon = max_lon = lon;
-                have_bbox = true;
+                have_geom = true;
             }
             else
             {
@@ -364,61 +398,65 @@ public:
             node_blob += serialize_node_json(nr.ref(), lat, lon);
         }
 
-        if (!have_bbox)
+        if (!have_geom)
             return;
 
-        const std::string way_line = serialize_way_json(
-            static_cast<std::int64_t>(way.id()),
-            node_ids,
-            way.tags());
+        const std::uint64_t way_id = way.id();
+        const std::string way_line = serialize_way_json(way_id, node_ids, way.tags());
 
-        const double ts = cfg_.tile_size;
-        const long y0 = static_cast<long>(std::floor(min_lat / ts));
-        const long y1 = static_cast<long>(std::floor(max_lat / ts));
-        const long x0 = static_cast<long>(std::floor(min_lon / ts));
-        const long x1 = static_cast<long>(std::floor(max_lon / ts));
+        const double center_lat = (min_lat + max_lat) * 0.5;
+        const double center_lon = (min_lon + max_lon) * 0.5;
+        const std::string owner_tile = tile_key(center_lat, center_lon, cfg_.tile_size, cfg_.precision);
 
-        std::size_t tiles_for_way = 0;
+        writer_.add_content_way_and_nodes(owner_tile, way_line, node_blob);
 
+        const double bs = cfg_.bbox_size;
+        const long y0 = static_cast<long>(std::floor(min_lat / bs));
+        const long y1 = static_cast<long>(std::floor(max_lat / bs));
+        const long x0 = static_cast<long>(std::floor(min_lon / bs));
+        const long x1 = static_cast<long>(std::floor(max_lon / bs));
+
+        const std::string ref_line = serialize_bbox_ref_json(way_id, owner_tile);
+
+        std::size_t bbox_count_for_way = 0;
         for (long yi = y0; yi <= y1; ++yi)
         {
-            const double south = yi * ts;
-            const double north = south + ts;
+            const double s = yi * bs;
+            const double n = s + bs;
 
             for (long xi = x0; xi <= x1; ++xi)
             {
-                const double west = xi * ts;
-                const double east = west + ts;
+                const double w = xi * bs;
+                const double e = w + bs;
 
-                const std::string key = bbox_key(south, west, north, east, cfg_.precision);
-                appender_.add(key, way_line, node_blob);
-                ++tiles_for_way;
+                const std::string key = bbox_key(s, w, n, e, cfg_.precision);
+                writer_.add_bbox_ref(key, ref_line);
+                ++bbox_count_for_way;
             }
         }
 
         ++ways_matched_;
-        total_tiles_ += tiles_for_way;
+        total_bbox_refs_ += bbox_count_for_way;
 
         if (ways_matched_ % cfg_.flush_every == 0)
         {
             std::cerr << "ways retenus: " << ways_matched_
-                      << ", moyenne tuiles/way: "
-                      << (ways_matched_ ? static_cast<double>(total_tiles_) / ways_matched_ : 0.0)
+                      << ", moyenne bbox/way: "
+                      << (ways_matched_ ? static_cast<double>(total_bbox_refs_) / ways_matched_ : 0.0)
                       << "\n";
-            appender_.flush();
+            writer_.flush();
         }
     }
 
     std::uint64_t ways_seen() const noexcept { return ways_seen_; }
     std::uint64_t ways_matched() const noexcept { return ways_matched_; }
-    std::uint64_t total_tiles() const noexcept { return total_tiles_; }
 
 private:
     const Config &cfg_;
-    BufferedAppender &appender_;
+    BufferedAppender &writer_;
     std::uint64_t ways_seen_ = 0;
     std::uint64_t ways_matched_ = 0;
-    std::uint64_t total_tiles_ = 0;
+    std::uint64_t total_bbox_refs_ = 0;
 };
 
 static Config parse_args(int argc, char **argv)
@@ -426,9 +464,9 @@ static Config parse_args(int argc, char **argv)
     if (argc < 2)
     {
         throw std::runtime_error(
-            "Usage: phase1_split_ndjson <input.osm.pbf|input.osm.bz2> "
+            "Usage: phase1_spatial_index <input.osm.pbf|input.osm.bz2> "
             "[--out-dir DIR] [--tag KEY] [--tag-value VALUE] "
-            "[--tile-size 0.02] [--precision 5] [--flush-every 20000]");
+            "[--bbox-size 0.01] [--tile-size 0.05] [--precision 5] [--flush-every 20000]");
     }
 
     Config cfg;
@@ -437,8 +475,7 @@ static Config parse_args(int argc, char **argv)
     for (int i = 2; i < argc; ++i)
     {
         const std::string arg = argv[i];
-
-        auto need_value = [&](const char *name) -> std::string
+        auto need = [&](const char *name) -> std::string
         {
             if (i + 1 >= argc)
                 throw std::runtime_error(std::string("Valeur manquante pour ") + name);
@@ -446,39 +483,29 @@ static Config parse_args(int argc, char **argv)
         };
 
         if (arg == "--out-dir")
-        {
-            cfg.out_dir = need_value("--out-dir");
-        }
+            cfg.out_dir = need("--out-dir");
         else if (arg == "--tag")
-        {
-            cfg.tag = need_value("--tag");
-        }
+            cfg.tag = need("--tag");
         else if (arg == "--tag-value")
         {
-            cfg.tag_value = need_value("--tag-value");
+            cfg.tag_value = need("--tag-value");
             cfg.has_tag_value = true;
         }
+        else if (arg == "--bbox-size")
+            cfg.bbox_size = std::stod(need("--bbox-size"));
         else if (arg == "--tile-size")
-        {
-            cfg.tile_size = std::stod(need_value("--tile-size"));
-        }
+            cfg.tile_size = std::stod(need("--tile-size"));
         else if (arg == "--precision")
-        {
-            cfg.precision = std::stoi(need_value("--precision"));
-        }
+            cfg.precision = std::stoi(need("--precision"));
         else if (arg == "--flush-every")
-        {
-            cfg.flush_every = static_cast<std::size_t>(std::stoull(need_value("--flush-every")));
-        }
+            cfg.flush_every = static_cast<std::size_t>(std::stoull(need("--flush-every")));
         else
-        {
             throw std::runtime_error("Argument inconnu: " + arg);
-        }
     }
 
-    if (cfg.tile_size <= 0.0)
+    if (cfg.bbox_size <= 0.0 || cfg.tile_size <= 0.0)
     {
-        throw std::runtime_error("--tile-size doit etre > 0");
+        throw std::runtime_error("--bbox-size et --tile-size doivent etre > 0");
     }
 
     return cfg;
@@ -501,29 +528,23 @@ int main(int argc, char **argv)
         location_handler_type location_handler{index};
         location_handler.ignore_errors();
 
-        BufferedAppender appender{cfg.out_dir};
-        SplitHandler handler{cfg, appender};
+        BufferedAppender writer{cfg.out_dir};
+        SplitHandler handler{cfg, writer};
 
         std::cerr << "Lecture: " << cfg.input_file << "\n";
         std::cerr << "Tag: " << cfg.tag;
         if (cfg.has_tag_value)
             std::cerr << "=" << cfg.tag_value;
-        std::cerr << ", tile-size: " << cfg.tile_size << "\n";
+        std::cerr << " | bbox-size=" << cfg.bbox_size
+                  << " | tile-size=" << cfg.tile_size << "\n";
 
         osmium::apply(reader, location_handler, handler);
         reader.close();
+        writer.flush();
 
-        appender.flush();
-
-        std::cerr << "Termine.\n";
+        std::cerr << "Phase 1 terminee.\n";
         std::cerr << "- ways lus: " << handler.ways_seen() << "\n";
         std::cerr << "- ways retenus: " << handler.ways_matched() << "\n";
-        std::cerr << "- moyenne tuiles/way: "
-                  << (handler.ways_matched()
-                          ? static_cast<double>(handler.total_tiles()) / handler.ways_matched()
-                          : 0.0)
-                  << "\n";
-
         return 0;
     }
     catch (const std::exception &e)
