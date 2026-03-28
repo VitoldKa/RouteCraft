@@ -570,6 +570,7 @@ class OSMMap extends HTMLElement {
 				wayIds: Array.isArray(data.wayIds) ? data.wayIds : [],
 				contentTiles: Array.isArray(data.contentTiles) ? data.contentTiles : [],
 				fetchedAt: data.fetchedAt || Date.now(),
+				missing: false,
 			}
 
 			try {
@@ -591,7 +592,29 @@ class OSMMap extends HTMLElement {
 			}
 
 			return row
-		} catch {
+		} catch (e) {
+			// Si le fichier bbox n'existe pas (404), on cache un résultat vide
+			const is404 = e?.message?.includes('HTTP 404') || e?.status === 404
+
+			if (is404) {
+				const row = {
+					key,
+					wayIds: [],
+					contentTiles: [],
+					fetchedAt: Date.now(),
+					missing: true,
+				}
+
+				try {
+					await putBBox(row)
+					pruneBBoxes(5000).catch(() => {})
+				} catch {
+					// ignore
+				}
+
+				return row
+			}
+
 			return null
 		}
 	}
@@ -636,7 +659,9 @@ class OSMMap extends HTMLElement {
 		})
 
 		if (!res.ok) {
-			throw new Error(`${path} -> HTTP ${res.status}`)
+			const err = new Error(`${path} -> HTTP ${res.status}`)
+			err.status = res.status
+			throw err
 		}
 
 		return await res.json()
