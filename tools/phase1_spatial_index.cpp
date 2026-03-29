@@ -1,14 +1,29 @@
 /*
-g++ -O3 -std=c++17 phase1_spatial_index.cpp \
-  -I$(brew --prefix libosmium)/include \
-  -I$(brew --prefix protozero)/include \
-  -I$(brew --prefix expat)/include \
-  -L$(brew --prefix bzip2)/lib \
-  -L$(brew --prefix zlib)/lib \
-  -L$(brew --prefix expat)/lib \
-  -lbz2 -lz -lexpat \
-  -o phase1_spatial_index
-*/
+MACOSX:
+    g++ -O3 -std=c++17 phase1_spatial_index.cpp \
+    -I$(brew --prefix libosmium)/include \
+    -I$(brew --prefix protozero)/include \
+    -I$(brew --prefix expat)/include \
+    -L$(brew --prefix bzip2)/lib \
+    -L$(brew --prefix zlib)/lib \
+    -L$(brew --prefix expat)/lib \
+    -lbz2 -lz -lexpat \
+    -o phase1_spatial_index
+
+WINDOWS (MSYS2):
+    pacman -S mingw-w64-x86_64-gcc \
+            mingw-w64-x86_64-cmake \
+            mingw-w64-x86_64-libosmium \
+            mingw-w64-x86_64-protozero \
+            mingw-w64-x86_64-expat \
+            mingw-w64-x86_64-zlib \
+            mingw-w64-x86_64-bzip2
+
+    mkdir build
+    cd build
+    cmake -G "MinGW Makefiles" ..
+    cmake --build . -j
+  */
 
 #include <cmath>
 #include <cstdint>
