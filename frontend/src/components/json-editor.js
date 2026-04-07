@@ -92,14 +92,17 @@ class JsonEditor extends HTMLElement {
 
   getParsed() {
     const txt = (this.cm ? this.cm.getValue() : "").trim();
-    if (!txt) return { ok: false, errors: ["Champ JSON vide."], route: [] };
+    if (!txt) return { ok: false, errors: ["Champ JSON vide."], route: [], annotations: [] };
 
     let obj;
     try { obj = JSON.parse(txt); }
-    catch { return { ok: false, errors: ["JSON invalide (syntaxe)."], route: [] }; }
+    catch { return { ok: false, errors: ["JSON invalide (syntaxe)."], route: [], annotations: [] }; }
 
-    const arr = Array.isArray(obj) ? obj : obj?.route;
-    if (!Array.isArray(arr)) return { ok: false, errors: ['Format attendu: {"route":[...]} ou [...]'], route: [] };
+    const arr = Array.isArray(obj) ? obj : (Array.isArray(obj?.route) ? obj.route : []);
+    if (!Array.isArray(obj) && obj != null && obj.route != null && !Array.isArray(obj.route)) {
+      return { ok: false, errors: ['Format attendu: {"route":[...], "annotations":[...]} ou [...]'], route: [], annotations: [] };
+    }
+    const rawAnnotations = Array.isArray(obj?.annotations) ? obj.annotations : [];
 
     const errors = [];
     const out = [];
@@ -127,14 +130,55 @@ class JsonEditor extends HTMLElement {
       }
     });
 
-    if (!out.length) errors.push("Aucun segment valide trouvé.");
-    return { ok: errors.length === 0, errors, route: out };
+    const annotations = [];
+    rawAnnotations.forEach((annotation, i) => {
+      const text = typeof annotation?.text === "string" ? annotation.text.trim() : "";
+      const lat = Number(annotation?.lat);
+      const lon = Number(annotation?.lon);
+      const color = this.normalizeSegmentColor(annotation?.color);
+      const fontSize = this.normalizeAnnotationFontSize(annotation?.fontSize);
+      if (!text) {
+        errors.push(`Annotation #${i + 1}: text invalide`);
+        return;
+      }
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        errors.push(`Annotation #${i + 1}: lat/lon invalides`);
+        return;
+      }
+      if (annotation?.color != null && color == null) {
+        errors.push(`Annotation #${i + 1}: color invalide (attendu: #RRGGBB)`);
+        return;
+      }
+      if (annotation?.fontSize != null && fontSize == null) {
+        errors.push(`Annotation #${i + 1}: fontSize invalide (10-32)`);
+        return;
+      }
+      annotations.push({
+        id: typeof annotation?.id === "string" && annotation.id ? annotation.id : `ann-${i + 1}`,
+        text,
+        lat,
+        lon,
+        ...(color ? { color } : {}),
+        ...(fontSize ? { fontSize } : {}),
+      });
+    });
+
+    if (!out.length && !annotations.length) errors.push("Aucun segment ni annotation valide trouvé.");
+    return { ok: errors.length === 0, errors, route: out, annotations };
   }
 
   normalizeSegmentColor(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null;
+  }
+
+  normalizeAnnotationFontSize(value) {
+    if (value == null || value === "") return null;
+    const size = Number(value);
+    if (!Number.isFinite(size)) return null;
+    const rounded = Math.round(size);
+    return rounded >= 10 && rounded <= 32 ? rounded : null;
   }
 
   // ---------- Init logic ----------

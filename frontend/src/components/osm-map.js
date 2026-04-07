@@ -1,4 +1,5 @@
 import './map-toolbox.js'
+import { MapAnnotationLayer } from './map-annotation-layer.js'
 import {
 	getWays,
 	putWays,
@@ -21,8 +22,11 @@ class OSMMap extends HTMLElement {
 			readOnly: false,
 			interactionMode: 'create',
 			currentDrawingColor: '#0060DD',
+			annotationDraft: { text: '', color: '#1B2A41', fontSize: 12 },
+			selectedAnnotationId: null,
 		}
 
+		this.annotations = []
 		this.selectedIndex = -1
 		this.invalidSeg = new Map()
 		this.invalidWayIds = new Set()
@@ -47,6 +51,7 @@ class OSMMap extends HTMLElement {
 		this.selectedLayer = null
 		this.editLayer = null
 		this.pickLayer = null
+		this.annotationLayer = null
 
 		this.editMarkers = new Map()
 		this.editLines = new Map()
@@ -123,6 +128,26 @@ class OSMMap extends HTMLElement {
 		this.selectedLayer = L.layerGroup().addTo(this.map)
 		this.editLayer = L.layerGroup().addTo(this.map)
 		this.pickLayer = L.layerGroup().addTo(this.map)
+		this.annotationLayer = new MapAnnotationLayer(this.map, {
+			onSelect: (annotation) => {
+				this.dispatchEvent(
+					new CustomEvent('annotation-select', {
+						detail: { annotation },
+						bubbles: true,
+						composed: true,
+					})
+				)
+			},
+			onUpdate: (annotation) => {
+				this.dispatchEvent(
+					new CustomEvent('annotation-update', {
+						detail: { annotation },
+						bubbles: true,
+						composed: true,
+					})
+				)
+			},
+		})
 		this.$toolbox = this.shadowRoot.querySelector('map-toolbox')
 
 		this.map.on('mousemove', (e) => this.onMouseMove(e))
@@ -155,6 +180,39 @@ class OSMMap extends HTMLElement {
 				})
 			)
 		})
+		this.$toolbox?.addEventListener('annotation-draft-change', (e) => {
+			this.dispatchEvent(
+				new CustomEvent('annotation-draft-change', {
+					detail: e.detail,
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
+		this.$toolbox?.addEventListener('annotation-save', () => {
+			this.dispatchEvent(
+				new CustomEvent('annotation-save', {
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
+		this.$toolbox?.addEventListener('annotation-delete', () => {
+			this.dispatchEvent(
+				new CustomEvent('annotation-delete', {
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
+		this.$toolbox?.addEventListener('annotation-clear-selection', () => {
+			this.dispatchEvent(
+				new CustomEvent('annotation-clear-selection', {
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
 		this.updateToolbox()
 
 		this.emitStatus({ pickStatus: 'Aucun point', error: null })
@@ -182,6 +240,11 @@ class OSMMap extends HTMLElement {
 		this.route = Array.isArray(route) ? route : []
 		this.redrawSelected()
 		this.validateAndMarkRoute({ autoFetch: true }).catch(() => {})
+	}
+
+	setAnnotations(annotations) {
+		this.annotations = Array.isArray(annotations) ? annotations : []
+		this.annotationLayer?.setAnnotations(this.annotations)
 	}
 
 	setSelectedIndex(i) {
@@ -978,7 +1041,9 @@ class OSMMap extends HTMLElement {
 	updateToolbox() {
 		this.$toolbox?.setState({
 			interactionMode: this.options.interactionMode,
-			currentDrawingColor: this.normalizeColor(this.options.currentDrawingColor),
+			currentDrawingColor: this.normalizeColor(this.options.currentDrawingColor) || '#0060DD',
+			selectedAnnotationId: this.options.selectedAnnotationId,
+			annotationDraft: this.options.annotationDraft,
 		})
 	}
 
@@ -1023,7 +1088,7 @@ class OSMMap extends HTMLElement {
 
 	onMouseMove(e) {
 		if (this.options.readOnly) return
-		if (this.options.interactionMode === 'select') {
+		if (this.options.interactionMode === 'select' || this.options.interactionMode === 'annotate') {
 			this.clearHover()
 			return
 		}
@@ -1060,6 +1125,10 @@ class OSMMap extends HTMLElement {
 
 	onMapClick(e) {
 		if (this.options.readOnly) return
+		if (this.options.interactionMode === 'annotate') {
+			this.addTextAnnotationAt(e.latlng)
+			return
+		}
 		if (this.options.interactionMode === 'select') return
 
 		if (
@@ -1490,13 +1559,57 @@ class OSMMap extends HTMLElement {
 		return this.wayTags.get(Number(wayId)) || {}
 	}
 
+	addTextAnnotationAt(latlng) {
+		const text = typeof this.options.annotationDraft?.text === 'string'
+			? this.options.annotationDraft.text.trim()
+			: ''
+		const color = this.normalizeColor(this.options.annotationDraft?.color) || '#1B2A41'
+		const fontSize = this.normalizeAnnotationFontSize(this.options.annotationDraft?.fontSize) || 12
+		if (!text) {
+			this.emitStatus({
+				error: 'Ajoute du texte dans la boîte annotation avant de cliquer sur la carte.',
+			})
+			return
+		}
+
+		this.dispatchEvent(
+			new CustomEvent('annotation-add', {
+				detail: {
+					annotation: {
+						id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+						text,
+						lat: Number(latlng.lat),
+						lon: Number(latlng.lng),
+						color,
+						fontSize,
+					},
+				},
+				bubbles: true,
+				composed: true,
+			})
+		)
+
+		this.emitStatus({
+			pickStatus: `Annotation ajoutée: ${text}`,
+			error: null,
+		})
+	}
+
 	normalizeColor(value) {
 		const color = typeof value === 'string' ? value.trim() : ''
-		return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : '#0060DD'
+		return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : null
+	}
+
+	normalizeAnnotationFontSize(value) {
+		const size = Number(value)
+		if (!Number.isFinite(size)) return null
+		const rounded = Math.round(size)
+		if (rounded < 10 || rounded > 32) return null
+		return rounded
 	}
 
 	getSegmentColor(seg) {
-		return this.normalizeColor(seg?.color)
+		return this.normalizeColor(seg?.color) || '#0060DD'
 	}
 
 	getExpectedContinuationNodeId() {

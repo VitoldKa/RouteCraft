@@ -8,6 +8,7 @@ class OSMRouteEditor extends HTMLElement {
     this.attachShadow({ mode: "open" });
 
     this.route = [];
+    this.annotations = [];
     this.cache = {
       nodesById: new Map(),
       wayNodeIds: new Map(),
@@ -20,6 +21,8 @@ class OSMRouteEditor extends HTMLElement {
       autoLoad: true,
       interactionMode: "create",
       lastSegmentColor: "#0060DD",
+      selectedAnnotationId: null,
+      annotationDraft: { text: "", color: "#1B2A41", fontSize: 12 },
       lastError: null,
       ioStatus: { kind: "ok", text: "Synchronisé" },
       pickStatus: "Aucun point",
@@ -60,11 +63,14 @@ class OSMRouteEditor extends HTMLElement {
       if (name === "strict") this.ui.strict = !!value;
       if (name === "autoLoad") this.ui.autoLoad = !!value;
       if (name === "interactionMode") {
-        this.ui.interactionMode = value === "select" ? "select" : "create";
+        this.ui.interactionMode =
+          value === "select" || value === "annotate" ? value : "create";
         this.ui.pickStatus =
           this.ui.interactionMode === "select"
             ? "Mode sélection : clique un segment existant sur la carte ou dans la liste."
-            : "Mode création : clique sur la carte pour ajouter un tronçon.";
+            : this.ui.interactionMode === "annotate"
+              ? "Mode annotation : clique sur la carte pour poser une note."
+              : "Mode création : clique sur la carte pour ajouter un tronçon.";
       }
       this.renderPanel();
       this.$map.setOptions({
@@ -72,6 +78,8 @@ class OSMRouteEditor extends HTMLElement {
         autoLoad: this.ui.autoLoad,
         interactionMode: this.ui.interactionMode,
         currentDrawingColor: this.ui.lastSegmentColor,
+        selectedAnnotationId: this.ui.selectedAnnotationId,
+        annotationDraft: this.ui.annotationDraft,
       });
     });
 
@@ -81,9 +89,12 @@ class OSMRouteEditor extends HTMLElement {
 
       if (type === "clear") {
         this.route = [];
+        this.annotations = [];
         this.ui.lastError = null;
         this.ui.pickStatus = "Aucun point";
         this.ui.selectedIndex = -1;
+        this.ui.selectedAnnotationId = null;
+        this.ui.annotationDraft = this.defaultAnnotationDraft();
         this.renderAll();
         this.$map.clearSelection();
         return;
@@ -105,7 +116,7 @@ class OSMRouteEditor extends HTMLElement {
       }
 
       if (type === "export") {
-        this.$json.setJSON({ route: this.route });
+        this.$json.setJSON({ route: this.route, annotations: this.annotations });
         this.ui.dirty = false;
         this.ui.ioStatus = { kind: "ok", text: "Synchronisé" };
         this.renderPanel();
@@ -164,7 +175,7 @@ class OSMRouteEditor extends HTMLElement {
       }
 
       this.renderAll();
-      this.$json.setJSON({ route: this.route });
+      this.$json.setJSON({ route: this.route, annotations: this.annotations });
     });
 
     this.$map.addEventListener("route-validation", (e) => {
@@ -185,17 +196,22 @@ class OSMRouteEditor extends HTMLElement {
     this.$map.addEventListener("toggle", (e) => {
       const { name, value } = e.detail;
       if (name !== "interactionMode") return;
-      this.ui.interactionMode = value === "select" ? "select" : "create";
+      this.ui.interactionMode =
+        value === "select" || value === "annotate" ? value : "create";
       this.ui.pickStatus =
         this.ui.interactionMode === "select"
           ? "Mode sélection : clique un segment existant sur la carte ou dans la liste."
-          : "Mode création : clique sur la carte pour ajouter un tronçon.";
+          : this.ui.interactionMode === "annotate"
+            ? "Mode annotation : clique sur la carte pour poser une note."
+            : "Mode création : clique sur la carte pour ajouter un tronçon.";
       this.renderAll();
       this.$map.setOptions({
         strict: this.ui.strict,
         autoLoad: this.ui.autoLoad,
         interactionMode: this.ui.interactionMode,
         currentDrawingColor: this.ui.lastSegmentColor,
+        selectedAnnotationId: this.ui.selectedAnnotationId,
+        annotationDraft: this.ui.annotationDraft,
       });
     });
 
@@ -211,6 +227,86 @@ class OSMRouteEditor extends HTMLElement {
         this.scheduleJsonSync();
       }
       this.schedulePanelRefresh();
+    });
+
+    this.$map.addEventListener("annotation-draft-change", (e) => {
+      this.ui.annotationDraft = this.normalizeAnnotationDraft({
+        ...(this.ui.annotationDraft || this.defaultAnnotationDraft()),
+        ...(e.detail?.patch || {}),
+      });
+      this.$map.setOptions({
+        strict: this.ui.strict,
+        autoLoad: this.ui.autoLoad,
+        interactionMode: this.ui.interactionMode,
+        currentDrawingColor: this.ui.lastSegmentColor,
+        selectedAnnotationId: this.ui.selectedAnnotationId,
+        annotationDraft: this.ui.annotationDraft,
+      });
+    });
+
+    this.$map.addEventListener("annotation-add", (e) => {
+      const annotation = this.normalizeAnnotation(e.detail?.annotation);
+      if (!annotation) return;
+      this.annotations.push(annotation);
+      this.ui.lastError = null;
+      this.ui.selectedAnnotationId = annotation.id;
+      this.ui.annotationDraft = this.annotationToDraft(annotation);
+      this.renderAll();
+      this.$json.setJSON({ route: this.route, annotations: this.annotations });
+    });
+
+    this.$map.addEventListener("annotation-select", (e) => {
+      const annotation = this.normalizeAnnotation(e.detail?.annotation);
+      if (!annotation) return;
+      this.ui.selectedAnnotationId = annotation.id;
+      this.ui.annotationDraft = this.annotationToDraft(annotation);
+      this.ui.interactionMode = "annotate";
+      this.ui.pickStatus = "Mode annotation : édite la note dans la toolbox ou déplace-la sur la carte.";
+      this.renderAll();
+    });
+
+    this.$map.addEventListener("annotation-update", (e) => {
+      const annotation = this.normalizeAnnotation(e.detail?.annotation);
+      if (!annotation) return;
+      const index = this.annotations.findIndex((item) => item.id === annotation.id);
+      if (index < 0) return;
+      this.annotations[index] = annotation;
+      if (this.ui.selectedAnnotationId === annotation.id) {
+        this.ui.annotationDraft = this.annotationToDraft(annotation);
+      }
+      this.$map.setAnnotations(this.annotations);
+      this.scheduleJsonSync();
+    });
+
+    this.$map.addEventListener("annotation-save", () => {
+      if (!this.ui.selectedAnnotationId) return;
+      const index = this.annotations.findIndex((item) => item.id === this.ui.selectedAnnotationId);
+      if (index < 0) return;
+      const current = this.annotations[index];
+      this.annotations[index] = this.normalizeAnnotation({
+        ...current,
+        ...this.ui.annotationDraft,
+      });
+      this.renderAll();
+      this.$json.setJSON({ route: this.route, annotations: this.annotations });
+    });
+
+    this.$map.addEventListener("annotation-delete", () => {
+      if (!this.ui.selectedAnnotationId) return;
+      this.annotations = this.annotations.filter((item) => item.id !== this.ui.selectedAnnotationId);
+      this.ui.selectedAnnotationId = null;
+      this.ui.annotationDraft = this.defaultAnnotationDraft();
+      this.renderAll();
+      this.$json.setJSON({ route: this.route, annotations: this.annotations });
+    });
+
+    this.$map.addEventListener("annotation-clear-selection", () => {
+      this.ui.selectedAnnotationId = null;
+      this.ui.annotationDraft = this.defaultAnnotationDraft({
+        color: this.ui.annotationDraft?.color,
+        fontSize: this.ui.annotationDraft?.fontSize,
+      });
+      this.renderAll();
     });
 
     // ---- List selection (focus mode)
@@ -251,7 +347,7 @@ class OSMRouteEditor extends HTMLElement {
       this.ui.lastError = null;
       this.ui.selectedIndex = this.route.length - 1; // auto focus on new segment
       this.renderAll();
-      this.$json.setJSON({ route: this.route });
+      this.$json.setJSON({ route: this.route, annotations: this.annotations });
       this.$map.setSelectedIndex(this.ui.selectedIndex);
     });
 
@@ -259,7 +355,7 @@ class OSMRouteEditor extends HTMLElement {
       const { index, segment } = e.detail;
       this.route[index] = { ...this.route[index], ...segment };
       this.renderAll();
-      this.$json.setJSON({ route: this.route });
+      this.$json.setJSON({ route: this.route, annotations: this.annotations });
     });
 
     this.$map.addEventListener("status", (e) => {
@@ -270,15 +366,18 @@ class OSMRouteEditor extends HTMLElement {
     });
 
     // ---- initial wiring
-    this.$map.setOptions({
-      strict: this.ui.strict,
-      autoLoad: this.ui.autoLoad,
-      interactionMode: this.ui.interactionMode,
-      currentDrawingColor: this.ui.lastSegmentColor,
-    });
+      this.$map.setOptions({
+        strict: this.ui.strict,
+        autoLoad: this.ui.autoLoad,
+        interactionMode: this.ui.interactionMode,
+        currentDrawingColor: this.ui.lastSegmentColor,
+        selectedAnnotationId: this.ui.selectedAnnotationId,
+        annotationDraft: this.ui.annotationDraft,
+      });
     this.$map.setRoute(this.route);
+    this.$map.setAnnotations(this.annotations);
     this.$map.setSelectedIndex(this.ui.selectedIndex);
-    this.$json.setJSON({ route: this.route });
+    this.$json.setJSON({ route: this.route, annotations: this.annotations });
 
     // initial bbox load
     this.$map.loadWaysInView().then(() => {
@@ -295,14 +394,17 @@ class OSMRouteEditor extends HTMLElement {
     this.renderPanel();
     this.$map.setCache(this.cache);
     this.$map.setRoute(this.route);
+    this.$map.setAnnotations(this.annotations);
     this.$map.setSelectedIndex(this.ui.selectedIndex);
     this.$map.setOptions({
       strict: this.ui.strict,
       autoLoad: this.ui.autoLoad,
       interactionMode: this.ui.interactionMode,
       currentDrawingColor: this.ui.lastSegmentColor,
+      selectedAnnotationId: this.ui.selectedAnnotationId,
+      annotationDraft: this.ui.annotationDraft,
     });
-    if (!this.ui.dirty) this.$json.setJSON({ route: this.route });
+    if (!this.ui.dirty) this.$json.setJSON({ route: this.route, annotations: this.annotations });
   }
 
   renderPanel() {
@@ -325,11 +427,64 @@ class OSMRouteEditor extends HTMLElement {
     return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null;
   }
 
+  normalizeAnnotation(annotation) {
+    const text = typeof annotation?.text === "string" ? annotation.text.trim() : "";
+    const lat = Number(annotation?.lat);
+    const lon = Number(annotation?.lon);
+    if (!text || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const color = this.normalizeSegmentColor(annotation?.color) || "#1B2A41";
+    const fontSize = this.normalizeAnnotationFontSize(annotation?.fontSize) || 12;
+    return {
+      id:
+        typeof annotation?.id === "string" && annotation.id
+          ? annotation.id
+          : `ann-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      lat,
+      lon,
+      color,
+      fontSize,
+    };
+  }
+
+  annotationToDraft(annotation) {
+    return {
+      text: annotation?.text || "",
+      color: annotation?.color || "#1B2A41",
+      fontSize: annotation?.fontSize || 12,
+    };
+  }
+
+  defaultAnnotationDraft(overrides = {}) {
+    return {
+      text: "",
+      color: "#1B2A41",
+      fontSize: 12,
+      ...overrides,
+    };
+  }
+
+  normalizeAnnotationDraft(draft) {
+    return {
+      text: typeof draft?.text === "string" ? draft.text : "",
+      color: this.normalizeSegmentColor(draft?.color) || "#1B2A41",
+      fontSize: this.normalizeAnnotationFontSize(draft?.fontSize) || 12,
+    };
+  }
+
+  normalizeAnnotationFontSize(value) {
+    const size = Number(value);
+    if (!Number.isFinite(size)) return null;
+    const rounded = Math.round(size);
+    if (rounded < 10 || rounded > 32) return null;
+    return rounded;
+  }
+
   scheduleJsonSync() {
     if (this.ui.dirty) return;
     clearTimeout(this._jsonSyncTimer);
     this._jsonSyncTimer = setTimeout(() => {
-      this.$json.setJSON({ route: this.route });
+      this.$json.setJSON({ route: this.route, annotations: this.annotations });
     }, 120);
   }
 
@@ -350,6 +505,7 @@ class OSMRouteEditor extends HTMLElement {
     }
 
     this.route = parsed.route;
+    this.annotations = parsed.annotations || [];
     const lastColored = [...this.route]
       .reverse()
       .map((seg) => this.normalizeSegmentColor(seg.color))
@@ -358,6 +514,8 @@ class OSMRouteEditor extends HTMLElement {
     this.ui.lastError = null;
     this.ui.pickStatus = "Aucun point";
     this.ui.selectedIndex = -1;
+    this.ui.selectedAnnotationId = null;
+    this.ui.annotationDraft = this.defaultAnnotationDraft();
 
     await this.loadCacheFromRouteWayIds();
     this.syncCacheFromMap();
@@ -365,7 +523,7 @@ class OSMRouteEditor extends HTMLElement {
 
     this.renderAll();
     this.$map.clearSelection();
-    this.$json.setJSON({ route: this.route });
+    this.$json.setJSON({ route: this.route, annotations: this.annotations });
   }
 
   async loadCacheFromRouteWayIds() {
