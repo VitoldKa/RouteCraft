@@ -22,6 +22,7 @@ class OSMRouteEditor extends HTMLElement {
       interactionMode: "create",
       lastSegmentColor: "#0060DD",
       selectedAnnotationId: null,
+      editingAnnotationId: null,
       annotationDraft: { text: "", color: "#1B2A41", fontSize: 12 },
       lastError: null,
       ioStatus: { kind: "ok", text: "Synchronisé" },
@@ -79,6 +80,7 @@ class OSMRouteEditor extends HTMLElement {
         interactionMode: this.ui.interactionMode,
         currentDrawingColor: this.ui.lastSegmentColor,
         selectedAnnotationId: this.ui.selectedAnnotationId,
+        editingAnnotationId: this.ui.editingAnnotationId,
         annotationDraft: this.ui.annotationDraft,
       });
     });
@@ -94,6 +96,7 @@ class OSMRouteEditor extends HTMLElement {
         this.ui.pickStatus = "Aucun point";
         this.ui.selectedIndex = -1;
         this.ui.selectedAnnotationId = null;
+        this.ui.editingAnnotationId = null;
         this.ui.annotationDraft = this.defaultAnnotationDraft();
         this.renderAll();
         this.$map.clearSelection();
@@ -211,6 +214,7 @@ class OSMRouteEditor extends HTMLElement {
         interactionMode: this.ui.interactionMode,
         currentDrawingColor: this.ui.lastSegmentColor,
         selectedAnnotationId: this.ui.selectedAnnotationId,
+        editingAnnotationId: this.ui.editingAnnotationId,
         annotationDraft: this.ui.annotationDraft,
       });
     });
@@ -234,12 +238,25 @@ class OSMRouteEditor extends HTMLElement {
         ...(this.ui.annotationDraft || this.defaultAnnotationDraft()),
         ...(e.detail?.patch || {}),
       });
+      if (this.ui.selectedAnnotationId) {
+        const index = this.annotations.findIndex((item) => item.id === this.ui.selectedAnnotationId);
+        if (index >= 0) {
+          this.annotations[index] = this.normalizeAnnotation({
+            ...this.annotations[index],
+            color: this.ui.annotationDraft.color,
+            fontSize: this.ui.annotationDraft.fontSize,
+          });
+          this.$map.setAnnotations(this.annotations);
+          this.scheduleJsonSync();
+        }
+      }
       this.$map.setOptions({
         strict: this.ui.strict,
         autoLoad: this.ui.autoLoad,
         interactionMode: this.ui.interactionMode,
         currentDrawingColor: this.ui.lastSegmentColor,
         selectedAnnotationId: this.ui.selectedAnnotationId,
+        editingAnnotationId: this.ui.editingAnnotationId,
         annotationDraft: this.ui.annotationDraft,
       });
     });
@@ -250,6 +267,7 @@ class OSMRouteEditor extends HTMLElement {
       this.annotations.push(annotation);
       this.ui.lastError = null;
       this.ui.selectedAnnotationId = annotation.id;
+      this.ui.editingAnnotationId = e.detail?.startEditing ? annotation.id : null;
       this.ui.annotationDraft = this.annotationToDraft(annotation);
       this.renderAll();
       this.$json.setJSON({ route: this.route, annotations: this.annotations });
@@ -259,9 +277,21 @@ class OSMRouteEditor extends HTMLElement {
       const annotation = this.normalizeAnnotation(e.detail?.annotation);
       if (!annotation) return;
       this.ui.selectedAnnotationId = annotation.id;
+      this.ui.editingAnnotationId = null;
       this.ui.annotationDraft = this.annotationToDraft(annotation);
       this.ui.interactionMode = "annotate";
-      this.ui.pickStatus = "Mode annotation : édite la note dans la toolbox ou déplace-la sur la carte.";
+      this.ui.pickStatus = "Mode annotation : double-clique la note pour éditer le texte, ou glisse-la pour la déplacer.";
+      this.renderAll();
+    });
+
+    this.$map.addEventListener("annotation-edit", (e) => {
+      const annotation = this.normalizeAnnotation(e.detail?.annotation);
+      if (!annotation) return;
+      this.ui.selectedAnnotationId = annotation.id;
+      this.ui.editingAnnotationId = annotation.id;
+      this.ui.annotationDraft = this.annotationToDraft(annotation);
+      this.ui.interactionMode = "annotate";
+      this.ui.pickStatus = "Édition annotation : modifie le texte dans la bulle sur la carte, puis clique Save ou Cancel.";
       this.renderAll();
     });
 
@@ -274,19 +304,42 @@ class OSMRouteEditor extends HTMLElement {
       if (this.ui.selectedAnnotationId === annotation.id) {
         this.ui.annotationDraft = this.annotationToDraft(annotation);
       }
+      this.ui.editingAnnotationId = null;
       this.$map.setAnnotations(this.annotations);
+      this.$map.setOptions({
+        strict: this.ui.strict,
+        autoLoad: this.ui.autoLoad,
+        interactionMode: this.ui.interactionMode,
+        currentDrawingColor: this.ui.lastSegmentColor,
+        selectedAnnotationId: this.ui.selectedAnnotationId,
+        editingAnnotationId: this.ui.editingAnnotationId,
+        annotationDraft: this.ui.annotationDraft,
+      });
       this.scheduleJsonSync();
+      this.schedulePanelRefresh();
     });
 
-    this.$map.addEventListener("annotation-save", () => {
+    this.$map.addEventListener("annotation-edit-cancel", () => {
+      this.ui.editingAnnotationId = null;
+      this.renderAll();
+    });
+
+    this.$map.addEventListener("annotation-text-save", (e) => {
       if (!this.ui.selectedAnnotationId) return;
       const index = this.annotations.findIndex((item) => item.id === this.ui.selectedAnnotationId);
       if (index < 0) return;
-      const current = this.annotations[index];
+      const text = typeof e.detail?.text === "string" ? e.detail.text.trimEnd() : "";
+      if (!text.trim()) {
+        this.ui.editingAnnotationId = null;
+        this.renderAll();
+        return;
+      }
       this.annotations[index] = this.normalizeAnnotation({
-        ...current,
-        ...this.ui.annotationDraft,
+        ...this.annotations[index],
+        text,
       });
+      this.ui.annotationDraft = this.annotationToDraft(this.annotations[index]);
+      this.ui.editingAnnotationId = null;
       this.renderAll();
       this.$json.setJSON({ route: this.route, annotations: this.annotations });
     });
@@ -295,6 +348,7 @@ class OSMRouteEditor extends HTMLElement {
       if (!this.ui.selectedAnnotationId) return;
       this.annotations = this.annotations.filter((item) => item.id !== this.ui.selectedAnnotationId);
       this.ui.selectedAnnotationId = null;
+      this.ui.editingAnnotationId = null;
       this.ui.annotationDraft = this.defaultAnnotationDraft();
       this.renderAll();
       this.$json.setJSON({ route: this.route, annotations: this.annotations });
@@ -302,6 +356,7 @@ class OSMRouteEditor extends HTMLElement {
 
     this.$map.addEventListener("annotation-clear-selection", () => {
       this.ui.selectedAnnotationId = null;
+      this.ui.editingAnnotationId = null;
       this.ui.annotationDraft = this.defaultAnnotationDraft({
         color: this.ui.annotationDraft?.color,
         fontSize: this.ui.annotationDraft?.fontSize,
@@ -372,6 +427,7 @@ class OSMRouteEditor extends HTMLElement {
         interactionMode: this.ui.interactionMode,
         currentDrawingColor: this.ui.lastSegmentColor,
         selectedAnnotationId: this.ui.selectedAnnotationId,
+        editingAnnotationId: this.ui.editingAnnotationId,
         annotationDraft: this.ui.annotationDraft,
       });
     this.$map.setRoute(this.route);
@@ -402,6 +458,7 @@ class OSMRouteEditor extends HTMLElement {
       interactionMode: this.ui.interactionMode,
       currentDrawingColor: this.ui.lastSegmentColor,
       selectedAnnotationId: this.ui.selectedAnnotationId,
+      editingAnnotationId: this.ui.editingAnnotationId,
       annotationDraft: this.ui.annotationDraft,
     });
     if (!this.ui.dirty) this.$json.setJSON({ route: this.route, annotations: this.annotations });
@@ -515,6 +572,7 @@ class OSMRouteEditor extends HTMLElement {
     this.ui.pickStatus = "Aucun point";
     this.ui.selectedIndex = -1;
     this.ui.selectedAnnotationId = null;
+    this.ui.editingAnnotationId = null;
     this.ui.annotationDraft = this.defaultAnnotationDraft();
 
     await this.loadCacheFromRouteWayIds();

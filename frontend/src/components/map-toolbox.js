@@ -6,6 +6,7 @@ class MapToolbox extends HTMLElement {
       interactionMode: "create",
       currentDrawingColor: "#0060DD",
       selectedAnnotationId: null,
+      editingAnnotationId: null,
       annotationDraft: {
         text: "",
         color: "#1B2A41",
@@ -123,7 +124,7 @@ class MapToolbox extends HTMLElement {
           accent-color:#0060DD;
         }
         .annotationBox {
-          min-width: 220px;
+          min-width: 184px;
           display:flex;
           flex-direction:column;
           gap:8px;
@@ -141,17 +142,6 @@ class MapToolbox extends HTMLElement {
           font-size:11px;
           line-height:1.35;
           color:#5a6b7f;
-        }
-        .annotationText {
-          width:100%;
-          min-height:64px;
-          resize:vertical;
-          border:1px solid rgba(18, 32, 56, 0.14);
-          border-radius:10px;
-          padding:8px 10px;
-          font: 13px/1.35 Georgia, serif;
-          color:#1b2a41;
-          box-sizing:border-box;
         }
         .annotationRow {
           display:flex;
@@ -218,15 +208,13 @@ class MapToolbox extends HTMLElement {
         </div>
         <div class="annotationBox">
           <div class="annotationTitle">Annotation</div>
-          <div id="annotationHint" class="annotationHint">Switch to annotation mode and click the map to place the current note.</div>
-          <textarea id="annotationText" class="annotationText" placeholder="Enter note text"></textarea>
+          <div id="annotationHint" class="annotationHint">Switch to annotation mode and click the map to place a note, then double-click it to edit the text.</div>
           <div class="annotationRow">
             <input id="annotationColor" class="toolColorSwatch" type="color" value="#1B2A41" aria-label="Annotation color">
             <input id="annotationFontSize" class="annotationNumber" type="number" min="10" max="32" step="1" value="12" aria-label="Annotation font size">
           </div>
           <div class="annotationRow">
-            <button id="annotationApply" class="annotationBtn primary" type="button">Apply</button>
-            <button id="annotationNew" class="annotationBtn" type="button">New</button>
+            <button id="annotationNew" class="annotationBtn primary" type="button">New</button>
             <button id="annotationDelete" class="annotationBtn danger" type="button">Delete</button>
           </div>
         </div>
@@ -256,20 +244,11 @@ class MapToolbox extends HTMLElement {
       if (colorValue) colorValue.textContent = nextColor;
       this.emitDrawingColorChange(nextColor);
     });
-    this.shadowRoot.querySelector("#annotationText").addEventListener("input", (e) => {
-      this.emitAnnotationDraftChange({ text: e.target.value });
-    });
     this.shadowRoot.querySelector("#annotationColor").addEventListener("input", (e) => {
       this.emitAnnotationDraftChange({ color: e.target.value });
     });
     this.shadowRoot.querySelector("#annotationFontSize").addEventListener("input", (e) => {
       this.emitAnnotationDraftChange({ fontSize: Number(e.target.value) });
-    });
-    this.shadowRoot.querySelector("#annotationApply").addEventListener("click", () => {
-      this.dispatchEvent(new CustomEvent("annotation-save", {
-        bubbles: true,
-        composed: true,
-      }));
     });
     this.shadowRoot.querySelector("#annotationNew").addEventListener("click", () => {
       this.dispatchEvent(new CustomEvent("annotation-clear-selection", {
@@ -297,11 +276,9 @@ class MapToolbox extends HTMLElement {
     const colorValue = this.shadowRoot.querySelector("#toolColorValue");
     const hueSlider = this.shadowRoot.querySelector("#toolHueSlider");
     const annotationDraft = this.normalizeAnnotationDraft(this.state.annotationDraft);
-    const annotationText = this.shadowRoot.querySelector("#annotationText");
     const annotationColor = this.shadowRoot.querySelector("#annotationColor");
     const annotationFontSize = this.shadowRoot.querySelector("#annotationFontSize");
     const annotationHint = this.shadowRoot.querySelector("#annotationHint");
-    const annotationApply = this.shadowRoot.querySelector("#annotationApply");
     const annotationDelete = this.shadowRoot.querySelector("#annotationDelete");
 
     if (createBtn) createBtn.classList.toggle("active", isCreate);
@@ -310,17 +287,15 @@ class MapToolbox extends HTMLElement {
     if (colorInput && colorInput.value !== color) colorInput.value = color;
     if (colorValue) colorValue.textContent = color;
     if (hueSlider && document.activeElement !== hueSlider) hueSlider.value = String(hue);
-    if (annotationText && document.activeElement !== annotationText && annotationText.value !== annotationDraft.text) {
-      annotationText.value = annotationDraft.text;
-    }
     if (annotationColor && annotationColor.value !== annotationDraft.color) annotationColor.value = annotationDraft.color;
     if (annotationFontSize && document.activeElement !== annotationFontSize) annotationFontSize.value = String(annotationDraft.fontSize);
     if (annotationHint) {
-      annotationHint.textContent = this.state.selectedAnnotationId
-        ? "Edit the selected annotation, then apply or drag it on the map."
-        : "In annotation mode, click the map to place the current note.";
+      annotationHint.textContent = this.state.editingAnnotationId
+        ? "Double-click editing active on the map. Click outside the note to save."
+        : this.state.selectedAnnotationId
+          ? "Selected note: double-click it to edit text, or drag it to move."
+          : "In annotation mode, click the map to place a note, then double-click it to edit.";
     }
-    if (annotationApply) annotationApply.textContent = this.state.selectedAnnotationId ? "Apply" : "Ready";
     if (annotationDelete) annotationDelete.disabled = !this.state.selectedAnnotationId;
   }
 
