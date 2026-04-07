@@ -18,8 +18,16 @@ export class MapAnnotationLayer {
   }
 
   setState({ selectedAnnotationId, editingAnnotationId } = {}) {
-    this.selectedAnnotationId = selectedAnnotationId ?? null;
-    this.editingAnnotationId = editingAnnotationId ?? null;
+    const nextSelected = selectedAnnotationId ?? null;
+    const nextEditing = editingAnnotationId ?? null;
+    if (
+      nextSelected === this.selectedAnnotationId &&
+      nextEditing === this.editingAnnotationId
+    ) {
+      return;
+    }
+    this.selectedAnnotationId = nextSelected;
+    this.editingAnnotationId = nextEditing;
     this.redraw();
   }
 

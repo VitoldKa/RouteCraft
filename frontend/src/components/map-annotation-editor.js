@@ -7,6 +7,7 @@ class MapAnnotationEditor extends HTMLElement {
       annotation: null,
       position: { x: 0, y: 0 },
     };
+    this.activeAnnotationId = null;
   }
 
   connectedCallback() {
@@ -137,27 +138,45 @@ class MapAnnotationEditor extends HTMLElement {
     if (!editor || !textarea) return;
 
     const open = !!this.state.open && !!this.state.annotation;
+    const annotation = this.state.annotation || null;
+    const annotationId = annotation?.id || null;
+    const isNewSession = open && annotationId !== this.activeAnnotationId;
     editor.classList.toggle("open", open);
-    editor.style.left = `${Math.round(this.state.position?.x ?? 0)}px`;
-    editor.style.top = `${Math.round(this.state.position?.y ?? 0)}px`;
 
-    if (!open) return;
+    if (!open) {
+      this.activeAnnotationId = null;
+      return;
+    }
 
-    const annotation = this.state.annotation || {};
     const fontSize = this.normalizeFontSize(annotation.fontSize);
     const color = this.normalizeColor(annotation.color);
     textarea.style.font = `600 ${fontSize}px/1.25 Georgia, serif`;
     textarea.style.color = color;
-    if (textarea.value !== String(annotation.text || "")) {
+    if (isNewSession) {
+      this.activeAnnotationId = annotationId;
       textarea.value = String(annotation.text || "");
     }
 
     requestAnimationFrame(() => {
-      if (document.activeElement !== textarea) {
+      this.positionEditor(editor);
+      if (isNewSession && this.shadowRoot.activeElement !== textarea) {
         textarea.focus();
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       }
     });
+  }
+
+  positionEditor(editor) {
+    const width = this.clientWidth || 0;
+    const height = this.clientHeight || 0;
+    const editorWidth = editor.offsetWidth || 280;
+    const editorHeight = editor.offsetHeight || 160;
+    const desiredX = Math.round(this.state.position?.x ?? 0);
+    const desiredY = Math.round(this.state.position?.y ?? 0);
+    const x = Math.max(12, Math.min(desiredX, Math.max(12, width - editorWidth - 12)));
+    const y = Math.max(12, Math.min(desiredY, Math.max(12, height - editorHeight - 12)));
+    editor.style.left = `${x}px`;
+    editor.style.top = `${y}px`;
   }
 
   emitSave() {
