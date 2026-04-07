@@ -40,7 +40,7 @@ A Routecraft route is a sequence of **OSM way segments**, defined by node pairs:
   { "wayId": 123456, "fromNode": 111, "toNode": 222 },
   { "wayId": 789012, "fromNode": 222, "toNode": 333 }
 ]
-````
+```
 
 This makes routes:
 

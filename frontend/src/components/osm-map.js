@@ -1,3 +1,4 @@
+import './map-toolbox.js'
 import {
 	getWays,
 	putWays,
@@ -18,6 +19,8 @@ class OSMMap extends HTMLElement {
 			strict: true,
 			autoLoad: true,
 			readOnly: false,
+			interactionMode: 'create',
+			currentDrawingColor: '#0060DD',
 		}
 
 		this.selectedIndex = -1
@@ -36,6 +39,7 @@ class OSMMap extends HTMLElement {
 		// hover / pick
 		this.pick = null
 		this.hoveredWayId = null
+		this.hoverMatch = null
 
 		// Leaflet
 		this.map = null
@@ -75,14 +79,24 @@ class OSMMap extends HTMLElement {
 		this.shadowRoot.innerHTML = `
       <style>
         :host { display:block; height:100%; width:100%; }
+        .shell { position:relative; height:100%; width:100%; }
         #map { height:100%; width:100%; }
         .leaflet-container img { max-width:none !important; }
+        map-toolbox {
+          position:absolute;
+          top:16px;
+          left:16px;
+          z-index:1000;
+        }
       </style>
 
       <link rel="stylesheet"
             href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
-      <div id="map"></div>
+      <div class="shell">
+        <map-toolbox></map-toolbox>
+        <div id="map"></div>
+      </div>
     `
 
 		this.map = L.map(this.shadowRoot.querySelector('#map')).setView(
@@ -109,6 +123,7 @@ class OSMMap extends HTMLElement {
 		this.selectedLayer = L.layerGroup().addTo(this.map)
 		this.editLayer = L.layerGroup().addTo(this.map)
 		this.pickLayer = L.layerGroup().addTo(this.map)
+		this.$toolbox = this.shadowRoot.querySelector('map-toolbox')
 
 		this.map.on('mousemove', (e) => this.onMouseMove(e))
 		this.map.on('click', (e) => this.onMapClick(e))
@@ -122,6 +137,25 @@ class OSMMap extends HTMLElement {
 		this.map.on('zoomend', () => {
 			this.buildSpatialIndex()
 		})
+		this.$toolbox?.addEventListener('toggle', (e) => {
+			this.dispatchEvent(
+				new CustomEvent('toggle', {
+					detail: e.detail,
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
+		this.$toolbox?.addEventListener('drawing-color-change', (e) => {
+			this.dispatchEvent(
+				new CustomEvent('drawing-color-change', {
+					detail: e.detail,
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
+		this.updateToolbox()
 
 		this.emitStatus({ pickStatus: 'Aucun point', error: null })
 	}
@@ -134,7 +168,14 @@ class OSMMap extends HTMLElement {
 	// ---------- Public API ----------
 
 	setOptions(opts) {
-		this.options = { ...this.options, ...(opts || {}) }
+		const next = { ...this.options, ...(opts || {}) }
+		const modeChanged = next.interactionMode !== this.options.interactionMode
+		this.options = next
+		if (modeChanged && this.options.interactionMode === 'select') {
+			this.clearSelection()
+			this.clearHover()
+		}
+		this.updateToolbox()
 	}
 
 	setRoute(route) {
@@ -931,11 +972,20 @@ class OSMMap extends HTMLElement {
 	clearHover() {
 		this.hoverLayer.clearLayers()
 		this.hoveredWayId = null
+		this.hoverMatch = null
 	}
 
-	renderHoverWay(wayId) {
+	updateToolbox() {
+		this.$toolbox?.setState({
+			interactionMode: this.options.interactionMode,
+			currentDrawingColor: this.normalizeColor(this.options.currentDrawingColor),
+		})
+	}
+
+	renderHoverWay(wayId, match = null) {
 		this.hoverLayer.clearLayers()
 		this.hoveredWayId = wayId
+		this.hoverMatch = match
 
 		const latlngs = this.wayToLatLngs(wayId)
 		if (latlngs.length < 2) return
@@ -945,21 +995,38 @@ class OSMMap extends HTMLElement {
 		)
 		const tags = this.wayTags.get(wayId) || {}
 		const name = tags.name ? ` (${tags.name})` : ''
+		const kind = this.describeWayKind(tags)
 
 		const hint =
 			window.event?.ctrlKey || window.event?.metaKey
 				? 'Ctrl + clic : ajouter la way entière'
 				: 'Clic : tronçon / intersections'
 
-		poly.bindTooltip(`way ${wayId}${name}<br><small>${hint}</small>`, {
+		const reasons =
+			match?.reasons?.length > 0
+				? `<br><small>Best match: ${match.reasons.join(' + ')}</small>`
+				: ''
+		const alternate =
+			match?.alternate?.wayId != null
+				? `<br><small>Alt: way ${match.alternate.wayId}</small>`
+				: ''
+
+		poly.bindTooltip(
+			`way ${wayId}${name}${kind ? ` · ${kind}` : ''}<br><small>${hint}</small>${reasons}${alternate}`,
+			{
 			sticky: true,
 			direction: 'top',
 			opacity: 0.9,
-		})
+			}
+		)
 	}
 
 	onMouseMove(e) {
 		if (this.options.readOnly) return
+		if (this.options.interactionMode === 'select') {
+			this.clearHover()
+			return
+		}
 		if (this.wayNodeIds.size === 0) return
 		if (this._moveTicking) return
 		this._moveTicking = true
@@ -967,31 +1034,24 @@ class OSMMap extends HTMLElement {
 		requestAnimationFrame(() => {
 			this._moveTicking = false
 
-			let bestWay = null
-			let bestD = Infinity
-
 			const candidates = this.candidatesNear(e.latlng)
 			if (candidates.size === 0) {
 				this.clearHover()
 				return
 			}
-
-			for (const wayId of candidates) {
-				const d = this.distanceToWayMeters(e.latlng, wayId)
-				if (d < bestD) {
-					bestD = d
-					bestWay = wayId
-				}
-			}
+			const ranked = this.rankWayCandidates(e.latlng, [...candidates])
+			const best = ranked[0] || null
 
 			const THRESHOLD = 15
-			if (!bestWay || bestD > THRESHOLD) {
+			if (!best || best.distance > THRESHOLD) {
 				this.clearHover()
 				return
 			}
 
-			if (bestWay !== this.hoveredWayId) {
-				this.renderHoverWay(bestWay)
+			const sameWay = best.wayId === this.hoveredWayId
+			const sameReason = JSON.stringify(best.reasons || []) === JSON.stringify(this.hoverMatch?.reasons || [])
+			if (!sameWay || !sameReason) {
+				this.renderHoverWay(best.wayId, best)
 			}
 		})
 	}
@@ -1000,6 +1060,7 @@ class OSMMap extends HTMLElement {
 
 	onMapClick(e) {
 		if (this.options.readOnly) return
+		if (this.options.interactionMode === 'select') return
 
 		if (
 			e.originalEvent &&
@@ -1019,6 +1080,10 @@ class OSMMap extends HTMLElement {
 			this.pick = { wayId, startNode: nodeId }
 			const n = this.nodesById.get(nodeId)
 			this.pickLayer.clearLayers()
+			const matchHint =
+				this.hoverMatch?.reasons?.length > 0
+					? ` Best match: ${this.hoverMatch.reasons.join(' + ')}.`
+					: ''
 
 			L.circleMarker([n.lat, n.lon], {
 				radius: 7,
@@ -1030,7 +1095,7 @@ class OSMMap extends HTMLElement {
 				.addTo(this.pickLayer)
 
 			this.emitStatus({
-				pickStatus: `Départ: way ${wayId}, node ${nodeId}. Clique un 2e point sur la même way.`,
+				pickStatus: `Départ: way ${wayId}, node ${nodeId}. Clique un 2e point sur la même way.${matchHint}`,
 				error: null,
 			})
 			return
@@ -1082,7 +1147,15 @@ class OSMMap extends HTMLElement {
 			})
 		)
 
+		const matchHint =
+			this.hoverMatch?.reasons?.length > 0
+				? ` Best match: ${this.hoverMatch.reasons.join(' + ')}.`
+				: ''
 		this.clearSelection()
+		this.emitStatus({
+			pickStatus: `Segment ajouté: way ${wayId}, ${fromNode} -> ${toNode}.${matchHint}`,
+			error: null,
+		})
 	}
 
 	addWholeWayFromHover() {
@@ -1147,12 +1220,31 @@ class OSMMap extends HTMLElement {
 
 			const isSelected = idx === this.selectedIndex
 			const isInvalid = this.invalidSeg.has(idx)
+			const segmentColor = this.getSegmentColor(seg)
 
 			const line = L.polyline(latlngs, {
-				color: isInvalid ? '#d00' : '#0060ddff',
+				color: isInvalid ? '#d00' : segmentColor,
 				weight: isSelected ? 10 : 7,
 				opacity: isSelected ? 1.0 : 0.75,
+				bubblingMouseEvents: false,
 			}).addTo(this.selectedLayer)
+			line.bindTooltip(`Segment ${idx + 1} · way ${seg.wayId}${seg.color ? ` · ${seg.color}` : ''}`, {
+				sticky: true,
+				direction: 'top',
+				opacity: 0.9,
+			})
+			line.on('click', (ev) => {
+				L.DomEvent.stop(ev)
+				L.DomEvent.stopPropagation(ev)
+				L.DomEvent.preventDefault(ev)
+				this.dispatchEvent(
+					new CustomEvent('select-segment', {
+						detail: { index: idx, source: 'map' },
+						bubbles: true,
+						composed: true,
+					})
+				)
+			})
 
 			this.editLines.set(idx, line)
 
@@ -1396,6 +1488,111 @@ class OSMMap extends HTMLElement {
 
 	getWayTags(wayId) {
 		return this.wayTags.get(Number(wayId)) || {}
+	}
+
+	normalizeColor(value) {
+		const color = typeof value === 'string' ? value.trim() : ''
+		return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : '#0060DD'
+	}
+
+	getSegmentColor(seg) {
+		return this.normalizeColor(seg?.color)
+	}
+
+	getExpectedContinuationNodeId() {
+		if (!this.options.strict || this.route.length === 0) return null
+		const prev = this.route[this.route.length - 1]
+		const nodeId = Number(prev?.toNode)
+		return Number.isInteger(nodeId) && nodeId > 0 ? nodeId : null
+	}
+
+	wayContainsNode(wayId, nodeId) {
+		if (!nodeId) return false
+		const ids = this.wayNodeIds.get(Number(wayId))
+		return Array.isArray(ids) ? ids.includes(Number(nodeId)) : false
+	}
+
+	describeWayKind(tags = {}) {
+		if (!tags || typeof tags !== 'object') return ''
+		if (tags.railway === 'tram') return 'tram'
+		if (tags.railway === 'light_rail') return 'light rail'
+		if (tags.busway != null) return 'busway'
+		if (tags['lanes:bus'] != null) return 'bus lanes'
+		if (tags.bus === 'yes' || tags.bus === 'designated') return 'bus priority'
+		if (tags.highway) return tags.highway
+		if (tags.railway) return tags.railway
+		return ''
+	}
+
+	transitMatchBonus(tags = {}) {
+		if (!tags || typeof tags !== 'object') return 0
+		if (tags.railway === 'tram' || tags.railway === 'light_rail') return 8
+		if (tags.busway != null) return 7
+		if (tags['lanes:bus'] != null) return 5
+		if (tags.bus === 'yes' || tags.bus === 'designated') return 4
+		return 0
+	}
+
+	rankWayCandidates(latlng, wayIds = []) {
+		const expectedNodeId = this.getExpectedContinuationNodeId()
+		const ranked = []
+
+		for (const rawWayId of wayIds) {
+			const wayId = Number(rawWayId)
+			const distance = this.distanceToWayMeters(latlng, wayId)
+			if (!Number.isFinite(distance)) continue
+
+			const nearestNodeId = this.nearestNodeIdOnWay(latlng, wayId)
+			const tags = this.getWayTags(wayId)
+			const containsExpected = this.wayContainsNode(wayId, expectedNodeId)
+			const reasons = []
+			let score = -distance
+
+			if (containsExpected) {
+				score += 40
+				reasons.push(`continuity via node ${expectedNodeId}`)
+			}
+
+			if (
+				containsExpected &&
+				nearestNodeId &&
+				Number(nearestNodeId) !== Number(expectedNodeId)
+			) {
+				score += 5
+				reasons.push('forward continuation')
+			}
+
+			const transitBonus = this.transitMatchBonus(tags)
+			if (transitBonus > 0) {
+				score += transitBonus
+				reasons.push(this.describeWayKind(tags))
+			}
+
+			if (reasons.length === 0) reasons.push('closest geometry')
+
+			ranked.push({
+				wayId,
+				distance,
+				score,
+				nearestNodeId,
+				reasons,
+			})
+		}
+
+		ranked.sort((a, b) => {
+			if (b.score !== a.score) return b.score - a.score
+			if (a.distance !== b.distance) return a.distance - b.distance
+			return a.wayId - b.wayId
+		})
+
+		if (ranked[0] && ranked[1]) {
+			const gap = ranked[0].score - ranked[1].score
+			if (gap < 6 || Math.abs(ranked[0].distance - ranked[1].distance) < 2) {
+				ranked[0].alternate = ranked[1]
+			}
+		}
+
+		return ranked
 	}
 
 	segmentDistanceMeters(seg) {

@@ -58,6 +58,15 @@ class RoutePanel extends HTMLElement {
         }
         .itemTop { display:flex; justify-content:space-between; gap:8px; align-items:center; }
         code { background:#fff; border:1px solid #e5e5e5; padding:2px 6px; border-radius:8px; }
+        .swatch {
+          display:inline-block;
+          width:12px;
+          height:12px;
+          border-radius:999px;
+          border:1px solid rgba(0,0,0,0.15);
+          vertical-align:middle;
+          margin-right:6px;
+        }
       </style>
 
       <div class="panel">
@@ -137,6 +146,7 @@ class RoutePanel extends HTMLElement {
           <div>
             <strong>${idx + 1}.</strong> way ${seg.wayId}<br>
             <span class="muted">from</span> <code>${seg.fromNode}</code> <span class="muted">→ to</span> <code>${seg.toNode}</code>
+            ${seg.color ? `<br><span class="muted"><span class="swatch" style="background:${seg.color}"></span>${seg.color}</span>` : ``}
           </div>
           <div style="display:flex; gap:6px; align-items:center;">
             <button class="small" data-act="up">↑</button>

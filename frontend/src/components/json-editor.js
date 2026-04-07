@@ -107,22 +107,34 @@ class JsonEditor extends HTMLElement {
       const wayId = Number(s?.wayId);
       const fromNode = Number(s?.fromNode);
       const toNode = Number(s?.toNode);
+      const color = this.normalizeSegmentColor(s?.color);
 
       if (!Number.isInteger(wayId) || wayId <= 0) errors.push(`Segment #${i + 1}: wayId invalide`);
       if (!Number.isInteger(fromNode) || fromNode <= 0) errors.push(`Segment #${i + 1}: fromNode invalide`);
       if (!Number.isInteger(toNode) || toNode <= 0) errors.push(`Segment #${i + 1}: toNode invalide`);
       if (Number.isInteger(fromNode) && Number.isInteger(toNode) && fromNode === toNode) errors.push(`Segment #${i + 1}: fromNode == toNode`);
+      if (s?.color != null && color == null) errors.push(`Segment #${i + 1}: color invalide (attendu: #RRGGBB)`);
 
       if (
         Number.isInteger(wayId) && wayId > 0 &&
         Number.isInteger(fromNode) && fromNode > 0 &&
         Number.isInteger(toNode) && toNode > 0 &&
         fromNode !== toNode
-      ) out.push({ wayId, fromNode, toNode });
+      ) {
+        const seg = { wayId, fromNode, toNode };
+        if (color) seg.color = color;
+        out.push(seg);
+      }
     });
 
     if (!out.length) errors.push("Aucun segment valide trouvé.");
     return { ok: errors.length === 0, errors, route: out };
+  }
+
+  normalizeSegmentColor(value) {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null;
   }
 
   // ---------- Init logic ----------
