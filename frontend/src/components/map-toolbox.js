@@ -175,18 +175,18 @@ class MapToolbox extends HTMLElement {
       </style>
 
       <div class="toolbox" aria-label="Map tools">
+        <button id="toolSelect" class="toolBtn" type="button" title="Selection tool" aria-label="Selection tool">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 4L16 15"></path>
+            <path d="M5 4L9 18L12 11L19 8Z"></path>
+          </svg>
+        </button>
         <button id="toolCreate" class="toolBtn" type="button" title="Creation tool" aria-label="Creation tool">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M4 18L10 6L14 13L17 10L20 18"></path>
             <path d="M6 18H20"></path>
             <path d="M18 4V8"></path>
             <path d="M16 6H20"></path>
-          </svg>
-        </button>
-        <button id="toolSelect" class="toolBtn" type="button" title="Selection tool" aria-label="Selection tool">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 4L16 15"></path>
-            <path d="M5 4L9 18L12 11L19 8Z"></path>
           </svg>
         </button>
         <button id="toolAnnotate" class="toolBtn" type="button" title="Text annotation tool" aria-label="Text annotation tool">
