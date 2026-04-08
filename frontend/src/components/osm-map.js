@@ -71,6 +71,7 @@ class OSMMap extends HTMLElement {
 
 		this.loading = false
 		this.lastLoadKey = ''
+		this.pendingLoadKey = ''
 
 		// Spatial index (grid in pixels)
 		this.spatial = {
@@ -115,6 +116,7 @@ class OSMMap extends HTMLElement {
 			[46.2044, 6.1432],
 			14
 		)
+		this.map.zoomControl?.setPosition('bottomright')
 
 		L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/'
 
@@ -561,8 +563,6 @@ class OSMMap extends HTMLElement {
 	// ---------- Chargement depuis cache spatial statique ----------
 
 	async loadWaysInView() {
-		if (this.loading) return
-
 		if (this.map.getZoom() < this.MIN_ZOOM) {
 			this.emitStatus({
 				error: `Zoome à ${this.MIN_ZOOM}+ pour charger.`,
@@ -575,7 +575,12 @@ class OSMMap extends HTMLElement {
 		const stableKey = bboxKeys.slice().sort().join('|')
 
 		if (stableKey === this.lastLoadKey) return
+		if (this.loading) {
+			this.pendingLoadKey = stableKey
+			return
+		}
 		this.lastLoadKey = stableKey
+		this.pendingLoadKey = ''
 
 		this.loading = true
 
@@ -645,6 +650,15 @@ class OSMMap extends HTMLElement {
 			throw e
 		} finally {
 			this.loading = false
+			if (
+				this.pendingLoadKey &&
+				this.pendingLoadKey !== this.lastLoadKey &&
+				this.options.autoLoad
+			) {
+				requestAnimationFrame(() => {
+					if (this.options.autoLoad) this.loadWaysInView()
+				})
+			}
 		}
 	}
 
