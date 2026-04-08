@@ -53,7 +53,6 @@ int main(int argc, char **argv)
                 osmium::osm_entity_bits::relation};
 
         CountHandler handler;
-        handler.nodemap.reserve(800'000'000);
         osmium::apply(reader, handler);
         reader.close();
 
