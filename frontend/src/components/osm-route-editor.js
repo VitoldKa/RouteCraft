@@ -23,7 +23,7 @@ class OSMRouteEditor extends HTMLElement {
 			lastSegmentColor: '#0060DD',
 			selectedAnnotationId: null,
 			editingAnnotationId: null,
-			annotationDraft: { text: '', color: '#1B2A41', fontSize: 12 },
+			annotationDraft: { text: '', color: '#0060DD', fontSize: 12 },
 			lastError: null,
 			ioStatus: { kind: 'ok', text: 'Synchronisé' },
 			pickStatus: 'Aucun point',
@@ -239,6 +239,10 @@ class OSMRouteEditor extends HTMLElement {
 		this.$map.addEventListener('drawing-color-change', (e) => {
 			const color = this.normalizeSegmentColor(e.detail?.color) || '#0060DD'
 			this.ui.lastSegmentColor = color
+			this.ui.annotationDraft = this.normalizeAnnotationDraft({
+				...(this.ui.annotationDraft || this.defaultAnnotationDraft()),
+				color,
+			})
 			if (
 				this.ui.selectedIndex >= 0 &&
 				this.ui.selectedIndex < this.route.length
@@ -250,6 +254,28 @@ class OSMRouteEditor extends HTMLElement {
 				this.$map.redrawSelected()
 				this.scheduleJsonSync()
 			}
+			if (this.ui.selectedAnnotationId) {
+				const index = this.annotations.findIndex(
+					(item) => item.id === this.ui.selectedAnnotationId
+				)
+				if (index >= 0) {
+					this.annotations[index] = this.normalizeAnnotation({
+						...this.annotations[index],
+						color,
+					})
+					this.$map.setAnnotations(this.annotations)
+					this.scheduleJsonSync()
+				}
+			}
+			this.$map.setOptions({
+				strict: this.ui.strict,
+				autoLoad: this.ui.autoLoad,
+				interactionMode: this.ui.interactionMode,
+				currentDrawingColor: this.ui.lastSegmentColor,
+				selectedAnnotationId: this.ui.selectedAnnotationId,
+				editingAnnotationId: this.ui.editingAnnotationId,
+				annotationDraft: this.ui.annotationDraft,
+			})
 			this.schedulePanelRefresh()
 		})
 
@@ -289,6 +315,8 @@ class OSMRouteEditor extends HTMLElement {
 			this.annotations.push(annotation)
 			this.ui.lastError = null
 			this.ui.selectedAnnotationId = annotation.id
+			this.ui.lastSegmentColor =
+				this.normalizeSegmentColor(annotation.color) || this.ui.lastSegmentColor
 			this.ui.editingAnnotationId = e.detail?.startEditing
 				? annotation.id
 				: null
@@ -302,6 +330,8 @@ class OSMRouteEditor extends HTMLElement {
 			if (!annotation) return
 			this.ui.selectedAnnotationId = annotation.id
 			this.ui.editingAnnotationId = null
+			this.ui.lastSegmentColor =
+				this.normalizeSegmentColor(annotation.color) || this.ui.lastSegmentColor
 			this.ui.annotationDraft = this.annotationToDraft(annotation)
 			this.ui.interactionMode = 'annotate'
 			this.ui.pickStatus =
@@ -314,6 +344,8 @@ class OSMRouteEditor extends HTMLElement {
 			if (!annotation) return
 			this.ui.selectedAnnotationId = annotation.id
 			this.ui.editingAnnotationId = annotation.id
+			this.ui.lastSegmentColor =
+				this.normalizeSegmentColor(annotation.color) || this.ui.lastSegmentColor
 			this.ui.annotationDraft = this.annotationToDraft(annotation)
 			this.ui.interactionMode = 'annotate'
 			this.ui.pickStatus =
@@ -330,6 +362,9 @@ class OSMRouteEditor extends HTMLElement {
 			if (index < 0) return
 			this.annotations[index] = annotation
 			if (this.ui.selectedAnnotationId === annotation.id) {
+				this.ui.lastSegmentColor =
+					this.normalizeSegmentColor(annotation.color) ||
+					this.ui.lastSegmentColor
 				this.ui.annotationDraft = this.annotationToDraft(annotation)
 			}
 			this.ui.editingAnnotationId = null
@@ -369,6 +404,9 @@ class OSMRouteEditor extends HTMLElement {
 				...this.annotations[index],
 				text,
 			})
+			this.ui.lastSegmentColor =
+				this.normalizeSegmentColor(this.annotations[index].color) ||
+				this.ui.lastSegmentColor
 			this.ui.annotationDraft = this.annotationToDraft(this.annotations[index])
 			this.ui.editingAnnotationId = null
 			this.renderAll()
@@ -526,7 +564,10 @@ class OSMRouteEditor extends HTMLElement {
 		const lat = Number(annotation?.lat)
 		const lon = Number(annotation?.lon)
 		if (!text || !Number.isFinite(lat) || !Number.isFinite(lon)) return null
-		const color = this.normalizeSegmentColor(annotation?.color) || '#1B2A41'
+		const color =
+			this.normalizeSegmentColor(annotation?.color) ||
+			this.normalizeSegmentColor(this.ui?.lastSegmentColor) ||
+			'#0060DD'
 		const fontSize =
 			this.normalizeAnnotationFontSize(annotation?.fontSize) || 12
 		return {
@@ -545,7 +586,10 @@ class OSMRouteEditor extends HTMLElement {
 	annotationToDraft(annotation) {
 		return {
 			text: annotation?.text || '',
-			color: annotation?.color || '#1B2A41',
+			color:
+				this.normalizeSegmentColor(annotation?.color) ||
+				this.normalizeSegmentColor(this.ui?.lastSegmentColor) ||
+				'#0060DD',
 			fontSize: annotation?.fontSize || 12,
 		}
 	}
@@ -553,7 +597,7 @@ class OSMRouteEditor extends HTMLElement {
 	defaultAnnotationDraft(overrides = {}) {
 		return {
 			text: '',
-			color: '#1B2A41',
+			color: this.normalizeSegmentColor(this.ui?.lastSegmentColor) || '#0060DD',
 			fontSize: 12,
 			...overrides,
 		}
@@ -562,7 +606,10 @@ class OSMRouteEditor extends HTMLElement {
 	normalizeAnnotationDraft(draft) {
 		return {
 			text: typeof draft?.text === 'string' ? draft.text : '',
-			color: this.normalizeSegmentColor(draft?.color) || '#1B2A41',
+			color:
+				this.normalizeSegmentColor(draft?.color) ||
+				this.normalizeSegmentColor(this.ui?.lastSegmentColor) ||
+				'#0060DD',
 			fontSize: this.normalizeAnnotationFontSize(draft?.fontSize) || 12,
 		}
 	}

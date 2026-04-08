@@ -23,7 +23,7 @@ class OSMMap extends HTMLElement {
 			readOnly: false,
 			interactionMode: 'create',
 			currentDrawingColor: '#0060DD',
-			annotationDraft: { text: '', color: '#1B2A41', fontSize: 12 },
+			annotationDraft: { text: '', color: '#0060DD', fontSize: 12 },
 			selectedAnnotationId: null,
 			editingAnnotationId: null,
 		}
@@ -1666,7 +1666,7 @@ class OSMMap extends HTMLElement {
 
 	addTextAnnotationAt(latlng) {
 		const color =
-			this.normalizeColor(this.options.annotationDraft?.color) || '#1B2A41'
+			this.normalizeColor(this.options.annotationDraft?.color) || '#0060DD'
 		const fontSize =
 			this.normalizeAnnotationFontSize(
 				this.options.annotationDraft?.fontSize

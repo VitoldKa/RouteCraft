@@ -9,7 +9,7 @@ class MapToolbox extends HTMLElement {
 			editingAnnotationId: null,
 			annotationDraft: {
 				text: '',
-				color: '#1B2A41',
+				color: '#0060DD',
 				fontSize: 12,
 			},
 		}
@@ -117,14 +117,7 @@ class MapToolbox extends HTMLElement {
           color:#5a6b7f;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         }
-        .toolHue {
-          width:100%;
-          margin:0;
-          cursor:pointer;
-          accent-color:#0060DD;
-        }
         .annotationBox {
-          min-width: 184px;
           display:flex;
           flex-direction:column;
           gap:8px;
@@ -204,13 +197,11 @@ class MapToolbox extends HTMLElement {
               <div id="toolColorValue" class="toolColorValue">#0060DD</div>
             </div>
           </div>
-          <input id="toolHueSlider" class="toolHue" type="range" min="0" max="360" step="1" value="216" aria-label="Hue">
         </div>
         <div class="annotationBox">
           <div class="annotationTitle">Annotation</div>
-          <div id="annotationHint" class="annotationHint">Switch to annotation mode and click the map to place a note, then double-click it to edit the text.</div>
+          <div id="annotationHint" class="annotationHint" style="display:none;">Switch to annotation mode and click the map to place a note, then double-click it to edit the text.</div>
           <div class="annotationRow">
-            <input id="annotationColor" class="toolColorSwatch" type="color" value="#1B2A41" aria-label="Annotation color">
             <input id="annotationFontSize" class="annotationNumber" type="number" min="10" max="32" step="1" value="12" aria-label="Annotation font size">
           </div>
           <div class="annotationRow">
@@ -244,25 +235,6 @@ class MapToolbox extends HTMLElement {
 				this.emitDrawingColorChange(e.target.value)
 			})
 		this.shadowRoot
-			.querySelector('#toolHueSlider')
-			.addEventListener('input', (e) => {
-				const currentColor = this.normalizeColor(this.state.currentDrawingColor)
-				const nextColor = this.withUpdatedHue(
-					currentColor,
-					Number(e.target.value)
-				)
-				const colorInput = this.shadowRoot.querySelector('#toolColorInput')
-				const colorValue = this.shadowRoot.querySelector('#toolColorValue')
-				if (colorInput) colorInput.value = nextColor
-				if (colorValue) colorValue.textContent = nextColor
-				this.emitDrawingColorChange(nextColor)
-			})
-		this.shadowRoot
-			.querySelector('#annotationColor')
-			.addEventListener('input', (e) => {
-				this.emitAnnotationDraftChange({ color: e.target.value })
-			})
-		this.shadowRoot
 			.querySelector('#annotationFontSize')
 			.addEventListener('input', (e) => {
 				this.emitAnnotationDraftChange({ fontSize: Number(e.target.value) })
@@ -291,7 +263,6 @@ class MapToolbox extends HTMLElement {
 
 	updateUI() {
 		const color = this.normalizeColor(this.state.currentDrawingColor)
-		const hue = Math.round(this.hexToHsl(color).h)
 		const isCreate = this.state.interactionMode === 'create'
 		const isAnnotate = this.state.interactionMode === 'annotate'
 		const createBtn = this.shadowRoot.querySelector('#toolCreate')
@@ -299,11 +270,9 @@ class MapToolbox extends HTMLElement {
 		const annotateBtn = this.shadowRoot.querySelector('#toolAnnotate')
 		const colorInput = this.shadowRoot.querySelector('#toolColorInput')
 		const colorValue = this.shadowRoot.querySelector('#toolColorValue')
-		const hueSlider = this.shadowRoot.querySelector('#toolHueSlider')
 		const annotationDraft = this.normalizeAnnotationDraft(
 			this.state.annotationDraft
 		)
-		const annotationColor = this.shadowRoot.querySelector('#annotationColor')
 		const annotationFontSize = this.shadowRoot.querySelector(
 			'#annotationFontSize'
 		)
@@ -319,10 +288,6 @@ class MapToolbox extends HTMLElement {
 		if (annotateBtn) annotateBtn.classList.toggle('active', isAnnotate)
 		if (colorInput && colorInput.value !== color) colorInput.value = color
 		if (colorValue) colorValue.textContent = color
-		if (hueSlider && document.activeElement !== hueSlider)
-			hueSlider.value = String(hue)
-		if (annotationColor && annotationColor.value !== annotationDraft.color)
-			annotationColor.value = annotationDraft.color
 		if (annotationFontSize && document.activeElement !== annotationFontSize)
 			annotationFontSize.value = String(annotationDraft.fontSize)
 		if (annotationHint) {
@@ -371,73 +336,12 @@ class MapToolbox extends HTMLElement {
 		return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : '#0060DD'
 	}
 
-	hexToHsl(hex) {
-		const normalized = this.normalizeColor(hex)
-		const r = parseInt(normalized.slice(1, 3), 16) / 255
-		const g = parseInt(normalized.slice(3, 5), 16) / 255
-		const b = parseInt(normalized.slice(5, 7), 16) / 255
-		const max = Math.max(r, g, b)
-		const min = Math.min(r, g, b)
-		const l = (max + min) / 2
-		const d = max - min
-		let h = 0
-		let s = 0
-
-		if (d !== 0) {
-			s = d / (1 - Math.abs(2 * l - 1))
-			switch (max) {
-				case r:
-					h = 60 * (((g - b) / d) % 6)
-					break
-				case g:
-					h = 60 * ((b - r) / d + 2)
-					break
-				default:
-					h = 60 * ((r - g) / d + 4)
-					break
-			}
-		}
-
-		if (h < 0) h += 360
-		return { h, s, l }
-	}
-
-	hslToHex(h, s, l) {
-		const hue = ((Number(h) % 360) + 360) % 360
-		const sat = Math.max(0, Math.min(1, Number(s)))
-		const lig = Math.max(0, Math.min(1, Number(l)))
-		const c = (1 - Math.abs(2 * lig - 1)) * sat
-		const x = c * (1 - Math.abs(((hue / 60) % 2) - 1))
-		const m = lig - c / 2
-		let r = 0
-		let g = 0
-		let b = 0
-
-		if (hue < 60) [r, g, b] = [c, x, 0]
-		else if (hue < 120) [r, g, b] = [x, c, 0]
-		else if (hue < 180) [r, g, b] = [0, c, x]
-		else if (hue < 240) [r, g, b] = [0, x, c]
-		else if (hue < 300) [r, g, b] = [x, 0, c]
-		else [r, g, b] = [c, 0, x]
-
-		const toHex = (value) =>
-			Math.round((value + m) * 255)
-				.toString(16)
-				.padStart(2, '0')
-				.toUpperCase()
-
-		return `#${toHex(r)}${toHex(g)}${toHex(b)}`
-	}
-
-	withUpdatedHue(hex, hue) {
-		const { s, l } = this.hexToHsl(hex)
-		return this.hslToHex(hue, s, l)
-	}
-
 	normalizeAnnotationDraft(draft) {
 		return {
 			text: typeof draft?.text === 'string' ? draft.text : '',
-			color: this.normalizeColor(draft?.color || '#1B2A41'),
+			color: this.normalizeColor(
+				draft?.color || this.state.currentDrawingColor
+			),
 			fontSize: this.normalizeFontSize(draft?.fontSize),
 		}
 	}
