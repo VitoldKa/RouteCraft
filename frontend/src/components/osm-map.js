@@ -22,6 +22,7 @@ class OSMMap extends HTMLElement {
 			autoLoad: true,
 			readOnly: false,
 			interactionMode: 'create',
+			baseMap: 'roadmap',
 			currentDrawingColor: '#0060DD',
 			annotationDraft: { text: '', color: '#0060DD', fontSize: 12 },
 			selectedAnnotationId: null,
@@ -49,6 +50,7 @@ class OSMMap extends HTMLElement {
 
 		// Leaflet
 		this.map = null
+		this.baseMapLayers = null
 		this.hoverLayer = null
 		this.selectedLayer = null
 		this.editLayer = null
@@ -96,6 +98,63 @@ class OSMMap extends HTMLElement {
           left:16px;
           z-index:1000;
         }
+        .baseMapToggle {
+          position:absolute;
+          left:16px;
+          bottom:16px;
+          z-index:1000;
+          width:88px;
+          padding:0;
+          border:1px solid rgba(18, 32, 56, 0.18);
+          border-radius:14px;
+          background:#fff;
+          box-shadow:0 10px 24px rgba(14, 30, 48, 0.18);
+          cursor:pointer;
+          overflow:hidden;
+          transition:transform 120ms ease, box-shadow 120ms ease;
+        }
+        .baseMapToggle:hover {
+          transform:translateY(-1px);
+          box-shadow:0 14px 28px rgba(14, 30, 48, 0.22);
+        }
+        .baseMapThumb {
+          display:block;
+          width:100%;
+          aspect-ratio:1;
+          background-size:cover;
+          background-position:center;
+        }
+        .baseMapThumb.roadmap {
+          background-image:
+            linear-gradient(135deg, rgba(72, 153, 92, 0.85), rgba(95, 182, 119, 0.82)),
+            linear-gradient(32deg, rgba(83, 164, 220, 0.95) 0 28%, transparent 28% 100%),
+            linear-gradient(0deg, rgba(241, 233, 204, 0.96), rgba(241, 233, 204, 0.96));
+          position:relative;
+        }
+        .baseMapThumb.roadmap::after {
+          content:'';
+          position:absolute;
+          inset:10% 14%;
+          border-radius:999px;
+          border:3px solid rgba(255,255,255,0.72);
+          border-left-width:10px;
+          transform:rotate(-24deg);
+        }
+        .baseMapThumb.satellite {
+          background-image:
+            radial-gradient(circle at 32% 26%, rgba(164, 200, 102, 0.78), transparent 24%),
+            radial-gradient(circle at 72% 34%, rgba(96, 138, 74, 0.72), transparent 26%),
+            radial-gradient(circle at 54% 70%, rgba(63, 96, 54, 0.78), transparent 28%),
+            linear-gradient(135deg, rgba(48, 70, 44, 0.98), rgba(92, 117, 71, 0.92) 42%, rgba(120, 91, 62, 0.88) 100%);
+        }
+        .baseMapLabel {
+          display:block;
+          padding:8px 10px 9px;
+          font-size:12px;
+          font-weight:700;
+          color:#1b2a41;
+          text-align:center;
+        }
         map-annotation-editor {
           position:absolute;
           inset:0;
@@ -107,6 +166,10 @@ class OSMMap extends HTMLElement {
 
       <div class="shell">
         <map-toolbox></map-toolbox>
+        <button id="baseMapToggle" class="baseMapToggle" type="button" aria-label="Switch map view">
+          <span id="baseMapThumb" class="baseMapThumb satellite" aria-hidden="true"></span>
+          <span id="baseMapLabel" class="baseMapLabel">Satellite</span>
+        </button>
         <map-annotation-editor></map-annotation-editor>
         <div id="map"></div>
       </div>
@@ -120,10 +183,33 @@ class OSMMap extends HTMLElement {
 
 		L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/'
 
-		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-			maxZoom: 19,
-			attribution: '&copy; OpenStreetMap contributors',
-		}).addTo(this.map)
+		this.baseMapLayers = {
+			roadmap: [
+				L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+					maxZoom: 19,
+					attribution: '&copy; OpenStreetMap contributors',
+				}),
+			],
+			satellite: [
+				L.tileLayer(
+					'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+					{
+						maxZoom: 19,
+						attribution:
+							'Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+					}
+				),
+				L.tileLayer(
+					'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+					{
+						maxZoom: 19,
+						attribution: 'Labels &copy; Esri',
+						opacity: 0.9,
+					}
+				),
+			],
+		}
+		this.applyBaseMap(this.options.baseMap)
 
 		requestAnimationFrame(() => this.map.invalidateSize())
 		setTimeout(() => this.map.invalidateSize(), 0)
@@ -176,6 +262,9 @@ class OSMMap extends HTMLElement {
 			},
 		})
 		this.$toolbox = this.shadowRoot.querySelector('map-toolbox')
+		this.$baseMapToggle = this.shadowRoot.querySelector('#baseMapToggle')
+		this.$baseMapThumb = this.shadowRoot.querySelector('#baseMapThumb')
+		this.$baseMapLabel = this.shadowRoot.querySelector('#baseMapLabel')
 		this.$annotationEditor = this.shadowRoot.querySelector(
 			'map-annotation-editor'
 		)
@@ -207,6 +296,22 @@ class OSMMap extends HTMLElement {
 			this.dispatchEvent(
 				new CustomEvent('drawing-color-change', {
 					detail: e.detail,
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
+		this.$baseMapToggle?.addEventListener('click', () => {
+			const baseMap =
+				this.normalizeBaseMap(this.options.baseMap) === 'satellite'
+					? 'roadmap'
+					: 'satellite'
+			this.options.baseMap = baseMap
+			this.applyBaseMap(baseMap)
+			this.updateBaseMapToggle()
+			this.dispatchEvent(
+				new CustomEvent('base-map-change', {
+					detail: { value: baseMap },
 					bubbles: true,
 					composed: true,
 				})
@@ -269,10 +374,17 @@ class OSMMap extends HTMLElement {
 	setOptions(opts) {
 		const next = { ...this.options, ...(opts || {}) }
 		const modeChanged = next.interactionMode !== this.options.interactionMode
+		const baseMapChanged =
+			this.normalizeBaseMap(next.baseMap) !==
+			this.normalizeBaseMap(this.options.baseMap)
 		this.options = next
 		if (modeChanged && this.options.interactionMode === 'select') {
 			this.clearSelection()
 			this.clearHover()
+		}
+		if (baseMapChanged) {
+			this.applyBaseMap(this.options.baseMap)
+			this.updateBaseMapToggle()
 		}
 		this.syncMapEditingState()
 		this.updateToolbox()
@@ -1274,7 +1386,41 @@ class OSMMap extends HTMLElement {
 			selectedAnnotationId: this.options.selectedAnnotationId,
 			editingAnnotationId: this.options.editingAnnotationId,
 		})
+		this.updateBaseMapToggle()
 		this.updateAnnotationEditor()
+	}
+
+	normalizeBaseMap(value) {
+		return value === 'satellite' ? 'satellite' : 'roadmap'
+	}
+
+	applyBaseMap(baseMap) {
+		if (!this.map || !this.baseMapLayers) return
+
+		const nextBaseMap = this.normalizeBaseMap(baseMap)
+		for (const layers of Object.values(this.baseMapLayers)) {
+			for (const layer of layers) {
+				if (this.map.hasLayer(layer)) this.map.removeLayer(layer)
+			}
+		}
+
+		for (const layer of this.baseMapLayers[nextBaseMap] || []) {
+			layer.addTo(this.map)
+		}
+	}
+
+	updateBaseMapToggle() {
+		if (!this.$baseMapToggle || !this.$baseMapThumb || !this.$baseMapLabel) return
+
+		const current = this.normalizeBaseMap(this.options.baseMap)
+		const alternate = current === 'satellite' ? 'roadmap' : 'satellite'
+		this.$baseMapThumb.classList.toggle('satellite', alternate === 'satellite')
+		this.$baseMapThumb.classList.toggle('roadmap', alternate === 'roadmap')
+		this.$baseMapLabel.textContent = alternate === 'satellite' ? 'Satellite' : 'Map'
+		this.$baseMapToggle.setAttribute(
+			'aria-label',
+			`Switch to ${alternate === 'satellite' ? 'satellite' : 'map'} view`
+		)
 	}
 
 	syncMapEditingState() {
