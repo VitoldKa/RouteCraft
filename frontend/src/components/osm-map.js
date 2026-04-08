@@ -1399,6 +1399,10 @@ class OSMMap extends HTMLElement {
 				opacity: isSelected ? 1.0 : 0.75,
 				bubblingMouseEvents: false,
 			}).addTo(this.selectedLayer)
+			this.addSegmentDirectionArrow(latlngs, {
+				color: isInvalid ? '#d00' : segmentColor,
+				isSelected,
+			})
 			line.bindTooltip(
 				`Segment ${idx + 1} · way ${seg.wayId}${seg.color ? ` · ${seg.color}` : ''}`,
 				{
@@ -1448,6 +1452,111 @@ class OSMMap extends HTMLElement {
 
 			this.editMarkers.set(`${idx}:start`, mStart)
 			this.editMarkers.set(`${idx}:end`, mEnd)
+		})
+	}
+
+	addSegmentDirectionArrow(latlngs, { color, isSelected } = {}) {
+		const arrowPlacement = this.getSegmentDirectionPlacement(latlngs)
+		if (!arrowPlacement) return
+
+		L.marker(arrowPlacement.latlng, {
+			icon: this.createSegmentDirectionIcon({
+				color,
+				angle: arrowPlacement.angle,
+				isSelected,
+			}),
+			interactive: false,
+			keyboard: false,
+			bubblingMouseEvents: false,
+		}).addTo(this.selectedLayer)
+	}
+
+	getSegmentDirectionPlacement(latlngs) {
+		if (!Array.isArray(latlngs) || latlngs.length < 2 || !this.map) return null
+
+		const points = latlngs.map((latlng) =>
+			this.map.latLngToContainerPoint(latlng)
+		)
+		let totalLength = 0
+		const lengths = []
+
+		for (let i = 0; i < points.length - 1; i++) {
+			const dx = points[i + 1].x - points[i].x
+			const dy = points[i + 1].y - points[i].y
+			const length = Math.hypot(dx, dy)
+			lengths.push(length)
+			totalLength += length
+		}
+
+		if (totalLength < 18) return null
+
+		const target = totalLength / 2
+		let walked = 0
+
+		for (let i = 0; i < lengths.length; i++) {
+			const segmentLength = lengths[i]
+			if (segmentLength === 0) continue
+			if (walked + segmentLength < target) {
+				walked += segmentLength
+				continue
+			}
+
+			const start = points[i]
+			const end = points[i + 1]
+			const ratio = (target - walked) / segmentLength
+			const x = start.x + (end.x - start.x) * ratio
+			const y = start.y + (end.y - start.y) * ratio
+			const angle =
+				(Math.atan2(end.y - start.y, end.x - start.x) * 180) / Math.PI
+
+			return {
+				latlng: this.map.containerPointToLatLng(L.point(x, y)),
+				angle,
+			}
+		}
+
+		return null
+	}
+
+	createSegmentDirectionIcon({ color, angle, isSelected } = {}) {
+		const stroke = this.normalizeColor(color) || '#0060DD'
+		const size = isSelected ? 48 : 36
+		const shadow = isSelected
+			? 'drop-shadow(0 2px 4px rgba(24, 71, 165, 0.22))'
+			: 'drop-shadow(0 2px 4px rgba(20, 28, 40, 0.18))'
+
+		return L.divIcon({
+			className: 'segment-direction-arrow',
+			html: `
+				<div style="
+					width:${size}px;
+					height:${size}px;
+					display:grid;
+					place-items:center;
+					transform: rotate(${angle}deg);
+					filter:${shadow};
+				">
+					<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">
+						<path
+							d="M4 12H18"
+							stroke="${stroke}"
+							stroke-width="3.4"
+							stroke-linecap="round"
+							fill="none"
+						/>
+						<path
+							d="M12 7L18 12L12 17"
+							stroke="${stroke}"
+							stroke-width="3.4"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							fill="none"
+						/>
+					</svg>
+				</div>
+			`,
+			iconSize: [size, size],
+			iconAnchor: [Math.round(size / 2), Math.round(size / 2)],
 		})
 	}
 
