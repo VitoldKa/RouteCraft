@@ -1,35 +1,35 @@
 class MapToolbox extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this.state = {
-      interactionMode: "create",
-      currentDrawingColor: "#0060DD",
-      selectedAnnotationId: null,
-      editingAnnotationId: null,
-      annotationDraft: {
-        text: "",
-        color: "#1B2A41",
-        fontSize: 12,
-      },
-    };
-  }
+	constructor() {
+		super()
+		this.attachShadow({ mode: 'open' })
+		this.state = {
+			interactionMode: 'create',
+			currentDrawingColor: '#0060DD',
+			selectedAnnotationId: null,
+			editingAnnotationId: null,
+			annotationDraft: {
+				text: '',
+				color: '#1B2A41',
+				fontSize: 12,
+			},
+		}
+	}
 
-  connectedCallback() {
-    if (!this.shadowRoot.hasChildNodes()) {
-      this.render();
-      this.bindEvents();
-    }
-    this.updateUI();
-  }
+	connectedCallback() {
+		if (!this.shadowRoot.hasChildNodes()) {
+			this.render()
+			this.bindEvents()
+		}
+		this.updateUI()
+	}
 
-  setState(next) {
-    this.state = { ...this.state, ...next };
-    this.updateUI();
-  }
+	setState(next) {
+		this.state = { ...this.state, ...next }
+		this.updateUI()
+	}
 
-  render() {
-    this.shadowRoot.innerHTML = `
+	render() {
+		this.shadowRoot.innerHTML = `
       <style>
         :host { display:block; }
         .toolbox {
@@ -219,191 +219,234 @@ class MapToolbox extends HTMLElement {
           </div>
         </div>
       </div>
-    `;
-  }
+    `
+	}
 
-  bindEvents() {
-    this.shadowRoot.querySelector("#toolCreate").addEventListener("click", () => {
-      this.emitToggle("create");
-    });
-    this.shadowRoot.querySelector("#toolSelect").addEventListener("click", () => {
-      this.emitToggle("select");
-    });
-    this.shadowRoot.querySelector("#toolAnnotate").addEventListener("click", () => {
-      this.emitToggle("annotate");
-    });
-    this.shadowRoot.querySelector("#toolColorInput").addEventListener("input", (e) => {
-      this.emitDrawingColorChange(e.target.value);
-    });
-    this.shadowRoot.querySelector("#toolHueSlider").addEventListener("input", (e) => {
-      const currentColor = this.normalizeColor(this.state.currentDrawingColor);
-      const nextColor = this.withUpdatedHue(currentColor, Number(e.target.value));
-      const colorInput = this.shadowRoot.querySelector("#toolColorInput");
-      const colorValue = this.shadowRoot.querySelector("#toolColorValue");
-      if (colorInput) colorInput.value = nextColor;
-      if (colorValue) colorValue.textContent = nextColor;
-      this.emitDrawingColorChange(nextColor);
-    });
-    this.shadowRoot.querySelector("#annotationColor").addEventListener("input", (e) => {
-      this.emitAnnotationDraftChange({ color: e.target.value });
-    });
-    this.shadowRoot.querySelector("#annotationFontSize").addEventListener("input", (e) => {
-      this.emitAnnotationDraftChange({ fontSize: Number(e.target.value) });
-    });
-    this.shadowRoot.querySelector("#annotationNew").addEventListener("click", () => {
-      this.dispatchEvent(new CustomEvent("annotation-clear-selection", {
-        bubbles: true,
-        composed: true,
-      }));
-    });
-    this.shadowRoot.querySelector("#annotationDelete").addEventListener("click", () => {
-      this.dispatchEvent(new CustomEvent("annotation-delete", {
-        bubbles: true,
-        composed: true,
-      }));
-    });
-  }
+	bindEvents() {
+		this.shadowRoot
+			.querySelector('#toolCreate')
+			.addEventListener('click', () => {
+				this.emitToggle('create')
+			})
+		this.shadowRoot
+			.querySelector('#toolSelect')
+			.addEventListener('click', () => {
+				this.emitToggle('select')
+			})
+		this.shadowRoot
+			.querySelector('#toolAnnotate')
+			.addEventListener('click', () => {
+				this.emitToggle('annotate')
+			})
+		this.shadowRoot
+			.querySelector('#toolColorInput')
+			.addEventListener('input', (e) => {
+				this.emitDrawingColorChange(e.target.value)
+			})
+		this.shadowRoot
+			.querySelector('#toolHueSlider')
+			.addEventListener('input', (e) => {
+				const currentColor = this.normalizeColor(this.state.currentDrawingColor)
+				const nextColor = this.withUpdatedHue(
+					currentColor,
+					Number(e.target.value)
+				)
+				const colorInput = this.shadowRoot.querySelector('#toolColorInput')
+				const colorValue = this.shadowRoot.querySelector('#toolColorValue')
+				if (colorInput) colorInput.value = nextColor
+				if (colorValue) colorValue.textContent = nextColor
+				this.emitDrawingColorChange(nextColor)
+			})
+		this.shadowRoot
+			.querySelector('#annotationColor')
+			.addEventListener('input', (e) => {
+				this.emitAnnotationDraftChange({ color: e.target.value })
+			})
+		this.shadowRoot
+			.querySelector('#annotationFontSize')
+			.addEventListener('input', (e) => {
+				this.emitAnnotationDraftChange({ fontSize: Number(e.target.value) })
+			})
+		this.shadowRoot
+			.querySelector('#annotationNew')
+			.addEventListener('click', () => {
+				this.dispatchEvent(
+					new CustomEvent('annotation-clear-selection', {
+						bubbles: true,
+						composed: true,
+					})
+				)
+			})
+		this.shadowRoot
+			.querySelector('#annotationDelete')
+			.addEventListener('click', () => {
+				this.dispatchEvent(
+					new CustomEvent('annotation-delete', {
+						bubbles: true,
+						composed: true,
+					})
+				)
+			})
+	}
 
-  updateUI() {
-    const color = this.normalizeColor(this.state.currentDrawingColor);
-    const hue = Math.round(this.hexToHsl(color).h);
-    const isCreate = this.state.interactionMode === "create";
-    const isAnnotate = this.state.interactionMode === "annotate";
-    const createBtn = this.shadowRoot.querySelector("#toolCreate");
-    const selectBtn = this.shadowRoot.querySelector("#toolSelect");
-    const annotateBtn = this.shadowRoot.querySelector("#toolAnnotate");
-    const colorInput = this.shadowRoot.querySelector("#toolColorInput");
-    const colorValue = this.shadowRoot.querySelector("#toolColorValue");
-    const hueSlider = this.shadowRoot.querySelector("#toolHueSlider");
-    const annotationDraft = this.normalizeAnnotationDraft(this.state.annotationDraft);
-    const annotationColor = this.shadowRoot.querySelector("#annotationColor");
-    const annotationFontSize = this.shadowRoot.querySelector("#annotationFontSize");
-    const annotationHint = this.shadowRoot.querySelector("#annotationHint");
-    const annotationDelete = this.shadowRoot.querySelector("#annotationDelete");
+	updateUI() {
+		const color = this.normalizeColor(this.state.currentDrawingColor)
+		const hue = Math.round(this.hexToHsl(color).h)
+		const isCreate = this.state.interactionMode === 'create'
+		const isAnnotate = this.state.interactionMode === 'annotate'
+		const createBtn = this.shadowRoot.querySelector('#toolCreate')
+		const selectBtn = this.shadowRoot.querySelector('#toolSelect')
+		const annotateBtn = this.shadowRoot.querySelector('#toolAnnotate')
+		const colorInput = this.shadowRoot.querySelector('#toolColorInput')
+		const colorValue = this.shadowRoot.querySelector('#toolColorValue')
+		const hueSlider = this.shadowRoot.querySelector('#toolHueSlider')
+		const annotationDraft = this.normalizeAnnotationDraft(
+			this.state.annotationDraft
+		)
+		const annotationColor = this.shadowRoot.querySelector('#annotationColor')
+		const annotationFontSize = this.shadowRoot.querySelector(
+			'#annotationFontSize'
+		)
+		const annotationHint = this.shadowRoot.querySelector('#annotationHint')
+		const annotationDelete = this.shadowRoot.querySelector('#annotationDelete')
 
-    if (createBtn) createBtn.classList.toggle("active", isCreate);
-    if (selectBtn) selectBtn.classList.toggle("active", this.state.interactionMode === "select");
-    if (annotateBtn) annotateBtn.classList.toggle("active", isAnnotate);
-    if (colorInput && colorInput.value !== color) colorInput.value = color;
-    if (colorValue) colorValue.textContent = color;
-    if (hueSlider && document.activeElement !== hueSlider) hueSlider.value = String(hue);
-    if (annotationColor && annotationColor.value !== annotationDraft.color) annotationColor.value = annotationDraft.color;
-    if (annotationFontSize && document.activeElement !== annotationFontSize) annotationFontSize.value = String(annotationDraft.fontSize);
-    if (annotationHint) {
-      annotationHint.textContent = this.state.editingAnnotationId
-        ? "Double-click editing active on the map. Click outside the note to save."
-        : this.state.selectedAnnotationId
-          ? "Selected note: double-click it to edit text, or drag it to move."
-          : "In annotation mode, click the map to place a note, then double-click it to edit.";
-    }
-    if (annotationDelete) annotationDelete.disabled = !this.state.selectedAnnotationId;
-  }
+		if (createBtn) createBtn.classList.toggle('active', isCreate)
+		if (selectBtn)
+			selectBtn.classList.toggle(
+				'active',
+				this.state.interactionMode === 'select'
+			)
+		if (annotateBtn) annotateBtn.classList.toggle('active', isAnnotate)
+		if (colorInput && colorInput.value !== color) colorInput.value = color
+		if (colorValue) colorValue.textContent = color
+		if (hueSlider && document.activeElement !== hueSlider)
+			hueSlider.value = String(hue)
+		if (annotationColor && annotationColor.value !== annotationDraft.color)
+			annotationColor.value = annotationDraft.color
+		if (annotationFontSize && document.activeElement !== annotationFontSize)
+			annotationFontSize.value = String(annotationDraft.fontSize)
+		if (annotationHint) {
+			annotationHint.textContent = this.state.editingAnnotationId
+				? 'Double-click editing active on the map. Click outside the note to save.'
+				: this.state.selectedAnnotationId
+					? 'Selected note: double-click it to edit text, or drag it to move.'
+					: 'In annotation mode, click the map to place a note, then double-click it to edit.'
+		}
+		if (annotationDelete)
+			annotationDelete.disabled = !this.state.selectedAnnotationId
+	}
 
-  emitToggle(value) {
-    this.dispatchEvent(new CustomEvent("toggle", {
-      detail: { name: "interactionMode", value },
-      bubbles: true,
-      composed: true,
-    }));
-  }
+	emitToggle(value) {
+		this.dispatchEvent(
+			new CustomEvent('toggle', {
+				detail: { name: 'interactionMode', value },
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 
-  emitDrawingColorChange(color) {
-    this.dispatchEvent(new CustomEvent("drawing-color-change", {
-      detail: { color },
-      bubbles: true,
-      composed: true,
-    }));
-  }
+	emitDrawingColorChange(color) {
+		this.dispatchEvent(
+			new CustomEvent('drawing-color-change', {
+				detail: { color },
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 
-  emitAnnotationDraftChange(patch) {
-    this.dispatchEvent(new CustomEvent("annotation-draft-change", {
-      detail: { patch },
-      bubbles: true,
-      composed: true,
-    }));
-  }
+	emitAnnotationDraftChange(patch) {
+		this.dispatchEvent(
+			new CustomEvent('annotation-draft-change', {
+				detail: { patch },
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 
-  normalizeColor(value) {
-    const color = typeof value === "string" ? value.trim() : "";
-    return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : "#0060DD";
-  }
+	normalizeColor(value) {
+		const color = typeof value === 'string' ? value.trim() : ''
+		return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : '#0060DD'
+	}
 
-  hexToHsl(hex) {
-    const normalized = this.normalizeColor(hex);
-    const r = parseInt(normalized.slice(1, 3), 16) / 255;
-    const g = parseInt(normalized.slice(3, 5), 16) / 255;
-    const b = parseInt(normalized.slice(5, 7), 16) / 255;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const l = (max + min) / 2;
-    const d = max - min;
-    let h = 0;
-    let s = 0;
+	hexToHsl(hex) {
+		const normalized = this.normalizeColor(hex)
+		const r = parseInt(normalized.slice(1, 3), 16) / 255
+		const g = parseInt(normalized.slice(3, 5), 16) / 255
+		const b = parseInt(normalized.slice(5, 7), 16) / 255
+		const max = Math.max(r, g, b)
+		const min = Math.min(r, g, b)
+		const l = (max + min) / 2
+		const d = max - min
+		let h = 0
+		let s = 0
 
-    if (d !== 0) {
-      s = d / (1 - Math.abs(2 * l - 1));
-      switch (max) {
-        case r:
-          h = 60 * (((g - b) / d) % 6);
-          break;
-        case g:
-          h = 60 * ((b - r) / d + 2);
-          break;
-        default:
-          h = 60 * ((r - g) / d + 4);
-          break;
-      }
-    }
+		if (d !== 0) {
+			s = d / (1 - Math.abs(2 * l - 1))
+			switch (max) {
+				case r:
+					h = 60 * (((g - b) / d) % 6)
+					break
+				case g:
+					h = 60 * ((b - r) / d + 2)
+					break
+				default:
+					h = 60 * ((r - g) / d + 4)
+					break
+			}
+		}
 
-    if (h < 0) h += 360;
-    return { h, s, l };
-  }
+		if (h < 0) h += 360
+		return { h, s, l }
+	}
 
-  hslToHex(h, s, l) {
-    const hue = ((Number(h) % 360) + 360) % 360;
-    const sat = Math.max(0, Math.min(1, Number(s)));
-    const lig = Math.max(0, Math.min(1, Number(l)));
-    const c = (1 - Math.abs(2 * lig - 1)) * sat;
-    const x = c * (1 - Math.abs((hue / 60) % 2 - 1));
-    const m = lig - c / 2;
-    let r = 0;
-    let g = 0;
-    let b = 0;
+	hslToHex(h, s, l) {
+		const hue = ((Number(h) % 360) + 360) % 360
+		const sat = Math.max(0, Math.min(1, Number(s)))
+		const lig = Math.max(0, Math.min(1, Number(l)))
+		const c = (1 - Math.abs(2 * lig - 1)) * sat
+		const x = c * (1 - Math.abs(((hue / 60) % 2) - 1))
+		const m = lig - c / 2
+		let r = 0
+		let g = 0
+		let b = 0
 
-    if (hue < 60) [r, g, b] = [c, x, 0];
-    else if (hue < 120) [r, g, b] = [x, c, 0];
-    else if (hue < 180) [r, g, b] = [0, c, x];
-    else if (hue < 240) [r, g, b] = [0, x, c];
-    else if (hue < 300) [r, g, b] = [x, 0, c];
-    else [r, g, b] = [c, 0, x];
+		if (hue < 60) [r, g, b] = [c, x, 0]
+		else if (hue < 120) [r, g, b] = [x, c, 0]
+		else if (hue < 180) [r, g, b] = [0, c, x]
+		else if (hue < 240) [r, g, b] = [0, x, c]
+		else if (hue < 300) [r, g, b] = [x, 0, c]
+		else [r, g, b] = [c, 0, x]
 
-    const toHex = (value) =>
-      Math.round((value + m) * 255)
-        .toString(16)
-        .padStart(2, "0")
-        .toUpperCase();
+		const toHex = (value) =>
+			Math.round((value + m) * 255)
+				.toString(16)
+				.padStart(2, '0')
+				.toUpperCase()
 
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
+		return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+	}
 
-  withUpdatedHue(hex, hue) {
-    const { s, l } = this.hexToHsl(hex);
-    return this.hslToHex(hue, s, l);
-  }
+	withUpdatedHue(hex, hue) {
+		const { s, l } = this.hexToHsl(hex)
+		return this.hslToHex(hue, s, l)
+	}
 
-  normalizeAnnotationDraft(draft) {
-    return {
-      text: typeof draft?.text === "string" ? draft.text : "",
-      color: this.normalizeColor(draft?.color || "#1B2A41"),
-      fontSize: this.normalizeFontSize(draft?.fontSize),
-    };
-  }
+	normalizeAnnotationDraft(draft) {
+		return {
+			text: typeof draft?.text === 'string' ? draft.text : '',
+			color: this.normalizeColor(draft?.color || '#1B2A41'),
+			fontSize: this.normalizeFontSize(draft?.fontSize),
+		}
+	}
 
-  normalizeFontSize(value) {
-    const size = Number(value);
-    if (!Number.isFinite(size)) return 12;
-    return Math.max(10, Math.min(32, Math.round(size)));
-  }
+	normalizeFontSize(value) {
+		const size = Number(value)
+		if (!Number.isFinite(size)) return 12
+		return Math.max(10, Math.min(32, Math.round(size)))
+	}
 }
 
-customElements.define("map-toolbox", MapToolbox);
+customElements.define('map-toolbox', MapToolbox)

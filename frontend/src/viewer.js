@@ -1,14 +1,14 @@
-import "./components/osm-map.js";
+import './components/osm-map.js'
 
 class OSMRouteViewer extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this.route = [];
-  }
+	constructor() {
+		super()
+		this.attachShadow({ mode: 'open' })
+		this.route = []
+	}
 
-  connectedCallback() {
-    this.shadowRoot.innerHTML = `
+	connectedCallback() {
+		this.shadowRoot.innerHTML = `
       <style>
         .wrap { display:flex; height:100vh; width:100vw; }
         osm-map { flex:1; display:block; min-width:0; }
@@ -66,144 +66,163 @@ class OSMRouteViewer extends HTMLElement {
           <pre id="raw"></pre>
         </div>
       </div>
-    `;
+    `
 
-    this.$map = this.shadowRoot.querySelector("osm-map");
-    this.$status = this.shadowRoot.querySelector("#status");
-    this.$list = this.shadowRoot.querySelector("#list");
-    this.$raw = this.shadowRoot.querySelector("#raw");
-    this.$dist = this.shadowRoot.querySelector("#dist");
-    this.$dist2 = this.shadowRoot.querySelector("#dist2");
+		this.$map = this.shadowRoot.querySelector('osm-map')
+		this.$status = this.shadowRoot.querySelector('#status')
+		this.$list = this.shadowRoot.querySelector('#list')
+		this.$raw = this.shadowRoot.querySelector('#raw')
+		this.$dist = this.shadowRoot.querySelector('#dist')
+		this.$dist2 = this.shadowRoot.querySelector('#dist2')
 
-    // Viewer: pas de pick / édition
-    this.$map.setOptions({ strict: false, autoLoad: false, readOnly: true });
-    this.$map.setSelectedIndex(-1);
+		// Viewer: pas de pick / édition
+		this.$map.setOptions({ strict: false, autoLoad: false, readOnly: true })
+		this.$map.setSelectedIndex(-1)
 
-    this.shadowRoot.querySelector("#zoomAll").addEventListener("click", () => {
-      this.zoomOnRoute();
-    });
+		this.shadowRoot.querySelector('#zoomAll').addEventListener('click', () => {
+			this.zoomOnRoute()
+		})
 
-    this.$map.addEventListener("status", (e) => {
-      const { error } = e.detail || {};
-      if (error) this.setStatus(error, true);
-    });
+		this.$map.addEventListener('status', (e) => {
+			const { error } = e.detail || {}
+			if (error) this.setStatus(error, true)
+		})
 
-    this.loadStaticJSONAndRender().catch((err) => {
-      this.setStatus(err?.message || String(err), true);
-    });
-  }
+		this.loadStaticJSONAndRender().catch((err) => {
+			this.setStatus(err?.message || String(err), true)
+		})
+	}
 
-  setStatus(text, isError = false) {
-    this.$status.textContent = text;
-    this.$status.classList.toggle("danger", !!isError);
-    this.$status.classList.toggle("ok", !isError);
-  }
+	setStatus(text, isError = false) {
+		this.$status.textContent = text
+		this.$status.classList.toggle('danger', !!isError)
+		this.$status.classList.toggle('ok', !isError)
+	}
 
-  readStaticJSON() {
-    const tag = document.getElementById("route-json");
-    if (!tag) throw new Error("Balise <script id='route-json' type='application/json'> introuvable.");
-    const txt = tag.textContent.trim();
-    if (!txt) throw new Error("route-json est vide.");
+	readStaticJSON() {
+		const tag = document.getElementById('route-json')
+		if (!tag)
+			throw new Error(
+				"Balise <script id='route-json' type='application/json'> introuvable."
+			)
+		const txt = tag.textContent.trim()
+		if (!txt) throw new Error('route-json est vide.')
 
-    let obj;
-    try { obj = JSON.parse(txt); } catch { throw new Error("JSON invalide dans route-json."); }
+		let obj
+		try {
+			obj = JSON.parse(txt)
+		} catch {
+			throw new Error('JSON invalide dans route-json.')
+		}
 
-    const arr = Array.isArray(obj) ? obj : obj.route;
-    if (!Array.isArray(arr)) throw new Error('Format attendu: {"route":[...]} ou directement un tableau.');
+		const arr = Array.isArray(obj) ? obj : obj.route
+		if (!Array.isArray(arr))
+			throw new Error(
+				'Format attendu: {"route":[...]} ou directement un tableau.'
+			)
 
-    const route = arr.map(s => ({
-      wayId: Number(s.wayId),
-      fromNode: Number(s.fromNode),
-      toNode: Number(s.toNode),
-    })).filter(s => Number.isInteger(s.wayId) && Number.isInteger(s.fromNode) && Number.isInteger(s.toNode));
+		const route = arr
+			.map((s) => ({
+				wayId: Number(s.wayId),
+				fromNode: Number(s.fromNode),
+				toNode: Number(s.toNode),
+			}))
+			.filter(
+				(s) =>
+					Number.isInteger(s.wayId) &&
+					Number.isInteger(s.fromNode) &&
+					Number.isInteger(s.toNode)
+			)
 
-    if (!route.length) throw new Error("Aucun segment valide dans le JSON.");
-    return { obj, route };
-  }
+		if (!route.length) throw new Error('Aucun segment valide dans le JSON.')
+		return { obj, route }
+	}
 
-  async loadStaticJSONAndRender() {
-    const { obj, route } = this.readStaticJSON();
-    this.route = route;
+	async loadStaticJSONAndRender() {
+		const { obj, route } = this.readStaticJSON()
+		this.route = route
 
-    this.$raw.textContent = JSON.stringify(obj, null, 2);
-    this.renderListSkeleton(); // liste sans noms/distances tant que cache pas chargé
+		this.$raw.textContent = JSON.stringify(obj, null, 2)
+		this.renderListSkeleton() // liste sans noms/distances tant que cache pas chargé
 
-    this.setStatus("Chargement des ways…");
+		this.setStatus('Chargement des ways…')
 
-    // 1) charge le cache par IDs
-    await this.$map.loadWaysByIds(this.route.map(s => s.wayId));
+		// 1) charge le cache par IDs
+		await this.$map.loadWaysByIds(this.route.map((s) => s.wayId))
 
-    // 2) affiche l’itinéraire
-    this.$map.setRoute(this.route);
+		// 2) affiche l’itinéraire
+		this.$map.setRoute(this.route)
 
-    // 3) recalcul distances + noms (tags dispo maintenant)
-    this.renderListWithNamesAndDistances();
+		// 3) recalcul distances + noms (tags dispo maintenant)
+		this.renderListWithNamesAndDistances()
 
-    // 4) zoom auto sur toute la route
-    this.zoomOnRoute();
+		// 4) zoom auto sur toute la route
+		this.zoomOnRoute()
 
-    this.setStatus("OK");
-  }
+		this.setStatus('OK')
+	}
 
-  zoomOnRoute() {
-    // Important si flex/shadow : resize -> Leaflet recalcul
-    if (this.$map.invalidate) this.$map.invalidate();
+	zoomOnRoute() {
+		// Important si flex/shadow : resize -> Leaflet recalcul
+		if (this.$map.invalidate) this.$map.invalidate()
 
-    // fit bounds route
-    this.$map.fitRoute(this.route);
-  }
+		// fit bounds route
+		this.$map.fitRoute(this.route)
+	}
 
-  renderListSkeleton() {
-    this.$list.innerHTML = "";
-    this.route.forEach((seg, i) => {
-      const div = document.createElement("div");
-      div.className = "item";
-      div.innerHTML = `
+	renderListSkeleton() {
+		this.$list.innerHTML = ''
+		this.route.forEach((seg, i) => {
+			const div = document.createElement('div')
+			div.className = 'item'
+			div.innerHTML = `
         <div><strong>${i + 1}.</strong> way ${seg.wayId}</div>
         <div class="muted"><span>from</span> <code>${seg.fromNode}</code> <span>→</span> <code>${seg.toNode}</code></div>
         <div class="muted">—</div>
-      `;
-      this.$list.appendChild(div);
-    });
-    this.$dist.textContent = "—";
-    this.$dist2.textContent = "";
-  }
+      `
+			this.$list.appendChild(div)
+		})
+		this.$dist.textContent = '—'
+		this.$dist2.textContent = ''
+	}
 
-  renderListWithNamesAndDistances() {
-    let total = 0;
+	renderListWithNamesAndDistances() {
+		let total = 0
 
-    this.$list.innerHTML = "";
-    this.route.forEach((seg, i) => {
-      const tags = this.$map.getWayTags ? this.$map.getWayTags(seg.wayId) : {};
-      const name = tags?.name ? tags.name : null;
+		this.$list.innerHTML = ''
+		this.route.forEach((seg, i) => {
+			const tags = this.$map.getWayTags ? this.$map.getWayTags(seg.wayId) : {}
+			const name = tags?.name ? tags.name : null
 
-      const d = this.$map.segmentDistanceMeters ? this.$map.segmentDistanceMeters(seg) : 0;
-      total += d;
+			const d = this.$map.segmentDistanceMeters
+				? this.$map.segmentDistanceMeters(seg)
+				: 0
+			total += d
 
-      const div = document.createElement("div");
-      div.className = "item";
-      div.innerHTML = `
+			const div = document.createElement('div')
+			div.className = 'item'
+			div.innerHTML = `
         <div><strong>${i + 1}.</strong> ${name ? name : `way ${seg.wayId}`}</div>
         <div class="muted"><span>way</span> <code>${seg.wayId}</code></div>
         <div class="muted">
           <span>from</span> <code>${seg.fromNode}</code> <span>→</span> <code>${seg.toNode}</code>
         </div>
         <div class="muted"><strong>${this.formatDistance(d)}</strong></div>
-      `;
-      this.$list.appendChild(div);
-    });
+      `
+			this.$list.appendChild(div)
+		})
 
-    this.$dist.textContent = this.formatDistance(total);
-    this.$dist2.textContent = `${Math.round(total)} m`;
-  }
+		this.$dist.textContent = this.formatDistance(total)
+		this.$dist2.textContent = `${Math.round(total)} m`
+	}
 
-  formatDistance(m) {
-    if (!isFinite(m) || m <= 0) return "0 m";
-    if (m < 1000) return `${Math.round(m)} m`;
-    const km = m / 1000;
-    // 1 décimale si < 10km, sinon 0
-    return km < 10 ? `${km.toFixed(1)} km` : `${km.toFixed(0)} km`;
-  }
+	formatDistance(m) {
+		if (!isFinite(m) || m <= 0) return '0 m'
+		if (m < 1000) return `${Math.round(m)} m`
+		const km = m / 1000
+		// 1 décimale si < 10km, sinon 0
+		return km < 10 ? `${km.toFixed(1)} km` : `${km.toFixed(0)} km`
+	}
 }
 
-customElements.define("osm-route-viewer", OSMRouteViewer);
+customElements.define('osm-route-viewer', OSMRouteViewer)

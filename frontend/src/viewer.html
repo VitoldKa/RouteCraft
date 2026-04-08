@@ -1,1090 +1,1093 @@
 <!doctype html>
 <html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>OSM Route Viewer</title>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width,initial-scale=1" />
+		<title>OSM Route Viewer</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="index.css" />
-</head>
-<body>
-  <!-- JSON statique (tu le changes à la main) -->
-  <script id="route-json" type="application/json">
-{
-  "route": [
-    {
-      "wayId": 79734522,
-      "fromNode": 2599118509,
-      "toNode": 576656886
-    },
-    {
-      "wayId": 45358906,
-      "fromNode": 576656886,
-      "toNode": 1484102216
-    },
-    {
-      "wayId": 45388057,
-      "fromNode": 1484102216,
-      "toNode": 1017911452
-    },
-    {
-      "wayId": 87504132,
-      "fromNode": 1017911452,
-      "toNode": 1017911207
-    },
-    {
-      "wayId": 87504188,
-      "fromNode": 1017911207,
-      "toNode": 451696327
-    },
-    {
-      "wayId": 1004669178,
-      "fromNode": 451696327,
-      "toNode": 12553306903
-    },
-    {
-      "wayId": 1356340459,
-      "fromNode": 6358394141,
-      "toNode": 12553306903
-    },
-    {
-      "wayId": 1004669177,
-      "fromNode": 9269553180,
-      "toNode": 6358394141
-    },
-    {
-      "wayId": 50780773,
-      "fromNode": 9269553180,
-      "toNode": 307631768
-    },
-    {
-      "wayId": 544175274,
-      "fromNode": 307631768,
-      "toNode": 2603998284
-    },
-    {
-      "wayId": 544175275,
-      "fromNode": 2603998284,
-      "toNode": 2603998285
-    },
-    {
-      "wayId": 50780772,
-      "fromNode": 2603998285,
-      "toNode": 307631765
-    },
-    {
-      "wayId": 28015053,
-      "fromNode": 307631765,
-      "toNode": 307629550
-    },
-    {
-      "wayId": 28014823,
-      "fromNode": 307629550,
-      "toNode": 924250291
-    },
-    {
-      "wayId": 28014823,
-      "fromNode": 307629552,
-      "toNode": 2604025392
-    },
-    {
-      "wayId": 28014823,
-      "fromNode": 2604025392,
-      "toNode": 307629499
-    },
-    {
-      "wayId": 79091151,
-      "fromNode": 576667427,
-      "toNode": 307629499
-    },
-    {
-      "wayId": 29359547,
-      "fromNode": 322941453,
-      "toNode": 322941427
-    },
-    {
-      "wayId": 28015071,
-      "fromNode": 307631853,
-      "toNode": 307631849
-    },
-    {
-      "wayId": 28015441,
-      "fromNode": 307631849,
-      "toNode": 2542049485
-    },
-    {
-      "wayId": 679376268,
-      "fromNode": 2542049485,
-      "toNode": 924250249
-    },
-    {
-      "wayId": 8070571,
-      "fromNode": 924250249,
-      "toNode": 60402207
-    },
-    {
-      "wayId": 346007171,
-      "fromNode": 60402207,
-      "toNode": 60402208
-    },
-    {
-      "wayId": 346007169,
-      "fromNode": 3526059250,
-      "toNode": 582597580
-    },
-    {
-      "wayId": 346007176,
-      "fromNode": 582597580,
-      "toNode": 1024691418
-    },
-    {
-      "wayId": 346007178,
-      "fromNode": 582597620,
-      "toNode": 1025622114
-    },
-    {
-      "wayId": 705618568,
-      "fromNode": 1025622114,
-      "toNode": 2082364944
-    },
-    {
-      "wayId": 471154451,
-      "fromNode": 7130533496,
-      "toNode": 425330783
-    },
-    {
-      "wayId": 346007164,
-      "fromNode": 967200520,
-      "toNode": 582593532
-    },
-    {
-      "wayId": 759180703,
-      "fromNode": 582593532,
-      "toNode": 7090912334
-    },
-    {
-      "wayId": 759180702,
-      "fromNode": 7090912334,
-      "toNode": 7090912335
-    },
-    {
-      "wayId": 762938615,
-      "fromNode": 7090912335,
-      "toNode": 7129170291
-    },
-    {
-      "wayId": 1270091766,
-      "fromNode": 7129170291,
-      "toNode": 11793044760
-    },
-    {
-      "wayId": 197862900,
-      "fromNode": 11793044760,
-      "toNode": 582902718
-    },
-    {
-      "wayId": 762942202,
-      "fromNode": 582902718,
-      "toNode": 582902717
-    },
-    {
-      "wayId": 283745367,
-      "fromNode": 582902717,
-      "toNode": 582902716
-    },
-    {
-      "wayId": 346024088,
-      "fromNode": 582902716,
-      "toNode": 582902713
-    },
-    {
-      "wayId": 45772806,
-      "fromNode": 60401771,
-      "toNode": 297724655
-    },
-    {
-      "wayId": 809255361,
-      "fromNode": 7566817021,
-      "toNode": 60401771
-    },
-    {
-      "wayId": 307019254,
-      "fromNode": 25648399,
-      "toNode": 7566817021
-    },
-    {
-      "wayId": 810136072,
-      "fromNode": 946250806,
-      "toNode": 7566817013
-    },
-    {
-      "wayId": 307019255,
-      "fromNode": 25648397,
-      "toNode": 946250806
-    },
-    {
-      "wayId": 307019257,
-      "fromNode": 1888335289,
-      "toNode": 25648397
-    },
-    {
-      "wayId": 307019253,
-      "fromNode": 25648368,
-      "toNode": 1888335289
-    },
-    {
-      "wayId": 810136073,
-      "fromNode": 25648367,
-      "toNode": 25648368
-    },
-    {
-      "wayId": 749475852,
-      "fromNode": 967185091,
-      "toNode": 25648367
-    },
-    {
-      "wayId": 679383924,
-      "fromNode": 941552706,
-      "toNode": 6361754886
-    },
-    {
-      "wayId": 679383925,
-      "fromNode": 6361754886,
-      "toNode": 6361752180
-    },
-    {
-      "wayId": 679383901,
-      "fromNode": 1818305809,
-      "toNode": 6361752180
-    },
-    {
-      "wayId": 679383905,
-      "fromNode": 927225328,
-      "toNode": 25648343
-    },
-    {
-      "wayId": 306839969,
-      "fromNode": 925352540,
-      "toNode": 927225328
-    },
-    {
-      "wayId": 5170143,
-      "fromNode": 25648290,
-      "toNode": 925352383
-    },
-    {
-      "wayId": 678812437,
-      "fromNode": 927225197,
-      "toNode": 25648286
-    },
-    {
-      "wayId": 79978069,
-      "fromNode": 25648286,
-      "toNode": 12541568262
-    },
-    {
-      "wayId": 678812430,
-      "fromNode": 6029885954,
-      "toNode": 6029885956
-    },
-    {
-      "wayId": 174537996,
-      "fromNode": 6029885956,
-      "toNode": 25649661
-    },
-    {
-      "wayId": 196598732,
-      "fromNode": 12541568272,
-      "toNode": 25648662
-    },
-    {
-      "wayId": 76565865,
-      "fromNode": 25648662,
-      "toNode": 25648661
-    },
-    {
-      "wayId": 5172988,
-      "fromNode": 25648661,
-      "toNode": 902550178
-    },
-    {
-      "wayId": 76787270,
-      "fromNode": 902550178,
-      "toNode": 904599896
-    },
-    {
-      "wayId": 79056016,
-      "fromNode": 904599896,
-      "toNode": 25648751
-    },
-    {
-      "wayId": 77886443,
-      "fromNode": 12531672676,
-      "toNode": 25648675
-    },
-    {
-      "wayId": 804968606,
-      "fromNode": 25648675,
-      "toNode": 1902642199
-    },
-    {
-      "wayId": 214484446,
-      "fromNode": 12531672678,
-      "toNode": 25648681
-    },
-    {
-      "wayId": 76565859,
-      "fromNode": 25648681,
-      "toNode": 1445786327
-    },
-    {
-      "wayId": 180331973,
-      "fromNode": 25648746,
-      "toNode": 25648747
-    },
-    {
-      "wayId": 180331974,
-      "fromNode": 25648692,
-      "toNode": 9310265846
-    },
-    {
-      "wayId": 281056789,
-      "fromNode": 928535613,
-      "toNode": 25649703
-    },
-    {
-      "wayId": 5172808,
-      "fromNode": 25649703,
-      "toNode": 25649708
-    },
-    {
-      "wayId": 45754906,
-      "fromNode": 25649708,
-      "toNode": 905372035
-    },
-    {
-      "wayId": 579887368,
-      "fromNode": 905372035,
-      "toNode": 25649716
-    },
-    {
-      "wayId": 1296577187,
-      "fromNode": 25649716,
-      "toNode": 3915669727
-    },
-    {
-      "wayId": 5172807,
-      "fromNode": 1097214436,
-      "toNode": 3915669727
-    },
-    {
-      "wayId": 94247437,
-      "fromNode": 1097214436,
-      "toNode": 3915669721
-    },
-    {
-      "wayId": 837031463,
-      "fromNode": 3915669721,
-      "toNode": 1097214540
-    },
-    {
-      "wayId": 76565863,
-      "fromNode": 1097214540,
-      "toNode": 1097214568
-    },
-    {
-      "wayId": 225801950,
-      "fromNode": 1097214568,
-      "toNode": 952707504
-    },
-    {
-      "wayId": 180489730,
-      "fromNode": 952707504,
-      "toNode": 324647940
-    },
-    {
-      "wayId": 65259410,
-      "fromNode": 324647940,
-      "toNode": 1572770867
-    },
-    {
-      "wayId": 180489741,
-      "fromNode": 12531673709,
-      "toNode": 25647483
-    },
-    {
-      "wayId": 180489740,
-      "fromNode": 25647483,
-      "toNode": 1909230604
-    },
-    {
-      "wayId": 808077906,
-      "fromNode": 1909230604,
-      "toNode": 12531673711
-    },
-    {
-      "wayId": 180489739,
-      "fromNode": 12531673712,
-      "toNode": 1572770884
-    },
-    {
-      "wayId": 1009068438,
-      "fromNode": 1572770884,
-      "toNode": 797846556
-    },
-    {
-      "wayId": 195714086,
-      "fromNode": 797846556,
-      "toNode": 25647481
-    },
-    {
-      "wayId": 8159420,
-      "fromNode": 25647481,
-      "toNode": 12531673715
-    },
-    {
-      "wayId": 5070393,
-      "fromNode": 25647480,
-      "toNode": 25647478
-    },
-    {
-      "wayId": 8159421,
-      "fromNode": 12531673718,
-      "toNode": 25647476
-    },
-    {
-      "wayId": 79747001,
-      "fromNode": 25647476,
-      "toNode": 12531673722
-    },
-    {
-      "wayId": 28483092,
-      "fromNode": 4280647081,
-      "toNode": 1068407438
-    },
-    {
-      "wayId": 91957599,
-      "fromNode": 1946851160,
-      "toNode": 1068411394
-    },
-    {
-      "wayId": 91957602,
-      "fromNode": 1068411394,
-      "toNode": 1946851161
-    },
-    {
-      "wayId": 79686174,
-      "fromNode": 12531673726,
-      "toNode": 955733832
-    },
-    {
-      "wayId": 779551459,
-      "fromNode": 955733832,
-      "toNode": 1066927125
-    },
-    {
-      "wayId": 82139882,
-      "fromNode": 1066927125,
-      "toNode": 956452609
-    },
-    {
-      "wayId": 144714139,
-      "fromNode": 1582369224,
-      "toNode": 1568218018
-    },
-    {
-      "wayId": 805484055,
-      "fromNode": 297910638,
-      "toNode": 6361673897
-    },
-    {
-      "wayId": 679376261,
-      "fromNode": 6361673897,
-      "toNode": 2732482079
-    },
-    {
-      "wayId": 76565889,
-      "fromNode": 902550056,
-      "toNode": 1541473576
-    },
-    {
-      "wayId": 61808928,
-      "fromNode": 7404804742,
-      "toNode": 25654728
-    },
-    {
-      "wayId": 195878052,
-      "fromNode": 25654728,
-      "toNode": 306639272
-    },
-    {
-      "wayId": 791437444,
-      "fromNode": 306639272,
-      "toNode": 7398780467
-    },
-    {
-      "wayId": 791437445,
-      "fromNode": 7398780467,
-      "toNode": 25654729
-    },
-    {
-      "wayId": 173103142,
-      "fromNode": 1839315142,
-      "toNode": 25654729
-    },
-    {
-      "wayId": 696399828,
-      "fromNode": 1839315142,
-      "toNode": 242167087
-    },
-    {
-      "wayId": 91369067,
-      "fromNode": 242167085,
-      "toNode": 283848221
-    },
-    {
-      "wayId": 173103136,
-      "fromNode": 7397255221,
-      "toNode": 283848221
-    },
-    {
-      "wayId": 791268703,
-      "fromNode": 283848179,
-      "toNode": 7397255221
-    },
-    {
-      "wayId": 274513998,
-      "fromNode": 962321271,
-      "toNode": 2809382
-    },
-    {
-      "wayId": 804193524,
-      "fromNode": 2809382,
-      "toNode": 2809384
-    },
-    {
-      "wayId": 744178988,
-      "fromNode": 2809384,
-      "toNode": 1035567772
-    },
-    {
-      "wayId": 274513996,
-      "fromNode": 1035567772,
-      "toNode": 283849536
-    },
-    {
-      "wayId": 791124296,
-      "fromNode": 283849536,
-      "toNode": 8488632110
-    },
-    {
-      "wayId": 913811745,
-      "fromNode": 8488632110,
-      "toNode": 11399794226
-    },
-    {
-      "wayId": 1229249812,
-      "fromNode": 11399794226,
-      "toNode": 6357531548
-    },
-    {
-      "wayId": 83872012,
-      "fromNode": 6357531548,
-      "toNode": 1035567786
-    },
-    {
-      "wayId": 274513993,
-      "fromNode": 1035567786,
-      "toNode": 2809390
-    },
-    {
-      "wayId": 804193523,
-      "fromNode": 2809390,
-      "toNode": 2809391
-    },
-    {
-      "wayId": 28571110,
-      "fromNode": 2809391,
-      "toNode": 313849851
-    },
-    {
-      "wayId": 1229250451,
-      "fromNode": 313849851,
-      "toNode": 313849852
-    },
-    {
-      "wayId": 354964953,
-      "fromNode": 313849852,
-      "toNode": 2809399
-    },
-    {
-      "wayId": 76565842,
-      "fromNode": 2809399,
-      "toNode": 976218638
-    },
-    {
-      "wayId": 791785155,
-      "fromNode": 976218638,
-      "toNode": 306644652
-    },
-    {
-      "wayId": 228203699,
-      "fromNode": 306644652,
-      "toNode": 283853527
-    },
-    {
-      "wayId": 228203700,
-      "fromNode": 283853527,
-      "toNode": 931247818
-    },
-    {
-      "wayId": 228203701,
-      "fromNode": 931247818,
-      "toNode": 1993062542
-    },
-    {
-      "wayId": 228203702,
-      "fromNode": 1993062542,
-      "toNode": 2809404
-    },
-    {
-      "wayId": 79748440,
-      "fromNode": 2809404,
-      "toNode": 2809405
-    },
-    {
-      "wayId": 228203698,
-      "fromNode": 2809405,
-      "toNode": 1993062672
-    },
-    {
-      "wayId": 76565844,
-      "fromNode": 283852340,
-      "toNode": 283852338
-    },
-    {
-      "wayId": 696354703,
-      "fromNode": 1460311585,
-      "toNode": 283852338
-    },
-    {
-      "wayId": 174538001,
-      "fromNode": 1460311585,
-      "toNode": 5567160423
-    },
-    {
-      "wayId": 836716672,
-      "fromNode": 5567160423,
-      "toNode": 283852873
-    },
-    {
-      "wayId": 29349156,
-      "fromNode": 497304,
-      "toNode": 283852599
-    },
-    {
-      "wayId": 80232748,
-      "fromNode": 929558431,
-      "toNode": 929558213
-    },
-    {
-      "wayId": 79686666,
-      "fromNode": 929558213,
-      "toNode": 2062848891
-    },
-    {
-      "wayId": 858822657,
-      "fromNode": 2062848891,
-      "toNode": 768498734
-    },
-    {
-      "wayId": 805484056,
-      "fromNode": 1568218018,
-      "toNode": 297910638
-    },
-    {
-      "wayId": 1461265438,
-      "fromNode": 322941453,
-      "toNode": 576667427
-    },
-    {
-      "wayId": 1461265440,
-      "fromNode": 322941427,
-      "toNode": 287025951
-    },
-    {
-      "wayId": 1461265439,
-      "fromNode": 287025951,
-      "toNode": 307631853
-    },
-    {
-      "wayId": 1356340461,
-      "fromNode": 60402208,
-      "toNode": 12553306915
-    },
-    {
-      "wayId": 346007180,
-      "fromNode": 12553306915,
-      "toNode": 3526059250
-    },
-    {
-      "wayId": 1356340462,
-      "fromNode": 1024691418,
-      "toNode": 12553306918
-    },
-    {
-      "wayId": 346007173,
-      "fromNode": 12553306918,
-      "toNode": 582597620
-    },
-    {
-      "wayId": 763059282,
-      "fromNode": 2082364944,
-      "toNode": 7130533496
-    },
-    {
-      "wayId": 1461478495,
-      "fromNode": 425330783,
-      "toNode": 13348367957
-    },
-    {
-      "wayId": 1461478496,
-      "fromNode": 13348367957,
-      "toNode": 967200520
-    },
-    {
-      "wayId": 1356342938,
-      "fromNode": 12553297623,
-      "toNode": 582902713
-    },
-    {
-      "wayId": 45773359,
-      "fromNode": 297724655,
-      "toNode": 12553297623
-    },
-    {
-      "wayId": 1356313536,
-      "fromNode": 12552998461,
-      "toNode": 25648399
-    },
-    {
-      "wayId": 307019256,
-      "fromNode": 7566817013,
-      "toNode": 12552998461
-    },
-    {
-      "wayId": 1356313535,
-      "fromNode": 12552998456,
-      "toNode": 967185091
-    },
-    {
-      "wayId": 80735624,
-      "fromNode": 941552706,
-      "toNode": 12552998456
-    },
-    {
-      "wayId": 1353093297,
-      "fromNode": 12520133073,
-      "toNode": 1818305809
-    },
-    {
-      "wayId": 679383904,
-      "fromNode": 25648343,
-      "toNode": 12520133073
-    },
-    {
-      "wayId": 696421616,
-      "fromNode": 12541568244,
-      "toNode": 925352540
-    },
-    {
-      "wayId": 1355153021,
-      "fromNode": 925352383,
-      "toNode": 12541568244
-    },
-    {
-      "wayId": 1355153022,
-      "fromNode": 12541568245,
-      "toNode": 25648290
-    },
-    {
-      "wayId": 1355153023,
-      "fromNode": 3915691893,
-      "toNode": 12541568245
-    },
-    {
-      "wayId": 79420973,
-      "fromNode": 927225197,
-      "toNode": 3915691893
-    },
-    {
-      "wayId": 1355153028,
-      "fromNode": 12541568262,
-      "toNode": 6029885954
-    },
-    {
-      "wayId": 1355153031,
-      "fromNode": 25649661,
-      "toNode": 904599869
-    },
-    {
-      "wayId": 1355153032,
-      "fromNode": 904599869,
-      "toNode": 499270188
-    },
-    {
-      "wayId": 1355153033,
-      "fromNode": 499270188,
-      "toNode": 12541568272
-    },
-    {
-      "wayId": 1354172541,
-      "fromNode": 25648751,
-      "toNode": 12531672676
-    },
-    {
-      "wayId": 1354172542,
-      "fromNode": 1902642199,
-      "toNode": 12531672678
-    },
-    {
-      "wayId": 1354172543,
-      "fromNode": 1445786327,
-      "toNode": 25648746
-    },
-    {
-      "wayId": 1354172546,
-      "fromNode": 25648747,
-      "toNode": 12531672688
-    },
-    {
-      "wayId": 1354172545,
-      "fromNode": 12531672688,
-      "toNode": 25648692
-    },
-    {
-      "wayId": 1354172544,
-      "fromNode": 9310265846,
-      "toNode": 928535613
-    },
-    {
-      "wayId": 1354172556,
-      "fromNode": 1572770867,
-      "toNode": 12531673708
-    },
-    {
-      "wayId": 1354172557,
-      "fromNode": 12531673708,
-      "toNode": 12531673709
-    },
-    {
-      "wayId": 1354172558,
-      "fromNode": 12531673711,
-      "toNode": 1909230612
-    },
-    {
-      "wayId": 1354172559,
-      "fromNode": 1909230612,
-      "toNode": 12531673712
-    },
-    {
-      "wayId": 1354172561,
-      "fromNode": 12531673715,
-      "toNode": 25647480
-    },
-    {
-      "wayId": 1354172562,
-      "fromNode": 25647478,
-      "toNode": 12531673718
-    },
-    {
-      "wayId": 1354172563,
-      "fromNode": 12531673722,
-      "toNode": 1912248171
-    },
-    {
-      "wayId": 1354172565,
-      "fromNode": 1912248171,
-      "toNode": 4280647081
-    },
-    {
-      "wayId": 1354172566,
-      "fromNode": 1068407438,
-      "toNode": 12531673725
-    },
-    {
-      "wayId": 1354172564,
-      "fromNode": 12531673725,
-      "toNode": 1946851160
-    },
-    {
-      "wayId": 1354172567,
-      "fromNode": 1946851161,
-      "toNode": 12531673726
-    },
-    {
-      "wayId": 388346627,
-      "fromNode": 3915562610,
-      "toNode": 924625466
-    },
-    {
-      "wayId": 90914360,
-      "fromNode": 2732482079,
-      "toNode": 3915562610
-    },
-    {
-      "wayId": 4272864,
-      "fromNode": 924625466,
-      "toNode": 3915562626
-    },
-    {
-      "wayId": 388346634,
-      "fromNode": 388432583,
-      "toNode": 1538577582
-    },
-    {
-      "wayId": 780386678,
-      "fromNode": 3915562626,
-      "toNode": 388432583
-    },
-    {
-      "wayId": 39611525,
-      "fromNode": 1538577582,
-      "toNode": 1018701352
-    },
-    {
-      "wayId": 144795547,
-      "fromNode": 1018701352,
-      "toNode": 902550056
-    },
-    {
-      "wayId": 1197202944,
-      "fromNode": 1541473576,
-      "toNode": 12531313647
-    },
-    {
-      "wayId": 1354136275,
-      "fromNode": 12531313647,
-      "toNode": 1541473508
-    },
-    {
-      "wayId": 626112132,
-      "fromNode": 1541473508,
-      "toNode": 6547235551
-    },
-    {
-      "wayId": 1354136277,
-      "fromNode": 6547235551,
-      "toNode": 3914540607
-    },
-    {
-      "wayId": 1196660212,
-      "fromNode": 3914540607,
-      "toNode": 1541473545
-    },
-    {
-      "wayId": 1355323933,
-      "fromNode": 6045735890,
-      "toNode": 12543244719
-    },
-    {
-      "wayId": 1354136273,
-      "fromNode": 12543244719,
-      "toNode": 12531313642
-    },
-    {
-      "wayId": 792060682,
-      "fromNode": 12531313641,
-      "toNode": 7404804742
-    },
-    {
-      "wayId": 1356103883,
-      "fromNode": 12550528797,
-      "toNode": 242167087
-    },
-    {
-      "wayId": 1356103882,
-      "fromNode": 12550442987,
-      "toNode": 12550528797
-    },
-    {
-      "wayId": 91369066,
-      "fromNode": 242167085,
-      "toNode": 12550442987
-    },
-    {
-      "wayId": 76565892,
-      "fromNode": 283848179,
-      "toNode": 2809379
-    },
-    {
-      "wayId": 1351625993,
-      "fromNode": 2809379,
-      "toNode": 12505035182
-    },
-    {
-      "wayId": 1351625994,
-      "fromNode": 12505035182,
-      "toNode": 962321271
-    },
-    {
-      "wayId": 228203696,
-      "fromNode": 1993062672,
-      "toNode": 12505035189
-    },
-    {
-      "wayId": 1351625995,
-      "fromNode": 12505035189,
-      "toNode": 6539223439
-    },
-    {
-      "wayId": 1351627418,
-      "fromNode": 6539223439,
-      "toNode": 12505048481
-    },
-    {
-      "wayId": 228203697,
-      "fromNode": 12505048481,
-      "toNode": 2368373266
-    },
-    {
-      "wayId": 1351627420,
-      "fromNode": 2368373266,
-      "toNode": 283852340
-    },
-    {
-      "wayId": 1354937342,
-      "fromNode": 283852873,
-      "toNode": 8890623237
-    },
-    {
-      "wayId": 188683558,
-      "fromNode": 12539237424,
-      "toNode": 283852599
-    },
-    {
-      "wayId": 1353905055,
-      "fromNode": 497304,
-      "toNode": 12528967841
-    },
-    {
-      "wayId": 27938571,
-      "fromNode": 12528967841,
-      "toNode": 12339717137
-    },
-    {
-      "wayId": 1353905054,
-      "fromNode": 12339717137,
-      "toNode": 929558431
-    }
-  ]
-}
-  </script>
+		<link
+			rel="stylesheet"
+			href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+		/>
+		<link rel="stylesheet" href="index.css" />
+	</head>
+	<body>
+		<!-- JSON statique (tu le changes à la main) -->
+		<script id="route-json" type="application/json">
+			{
+				"route": [
+					{
+						"wayId": 79734522,
+						"fromNode": 2599118509,
+						"toNode": 576656886
+					},
+					{
+						"wayId": 45358906,
+						"fromNode": 576656886,
+						"toNode": 1484102216
+					},
+					{
+						"wayId": 45388057,
+						"fromNode": 1484102216,
+						"toNode": 1017911452
+					},
+					{
+						"wayId": 87504132,
+						"fromNode": 1017911452,
+						"toNode": 1017911207
+					},
+					{
+						"wayId": 87504188,
+						"fromNode": 1017911207,
+						"toNode": 451696327
+					},
+					{
+						"wayId": 1004669178,
+						"fromNode": 451696327,
+						"toNode": 12553306903
+					},
+					{
+						"wayId": 1356340459,
+						"fromNode": 6358394141,
+						"toNode": 12553306903
+					},
+					{
+						"wayId": 1004669177,
+						"fromNode": 9269553180,
+						"toNode": 6358394141
+					},
+					{
+						"wayId": 50780773,
+						"fromNode": 9269553180,
+						"toNode": 307631768
+					},
+					{
+						"wayId": 544175274,
+						"fromNode": 307631768,
+						"toNode": 2603998284
+					},
+					{
+						"wayId": 544175275,
+						"fromNode": 2603998284,
+						"toNode": 2603998285
+					},
+					{
+						"wayId": 50780772,
+						"fromNode": 2603998285,
+						"toNode": 307631765
+					},
+					{
+						"wayId": 28015053,
+						"fromNode": 307631765,
+						"toNode": 307629550
+					},
+					{
+						"wayId": 28014823,
+						"fromNode": 307629550,
+						"toNode": 924250291
+					},
+					{
+						"wayId": 28014823,
+						"fromNode": 307629552,
+						"toNode": 2604025392
+					},
+					{
+						"wayId": 28014823,
+						"fromNode": 2604025392,
+						"toNode": 307629499
+					},
+					{
+						"wayId": 79091151,
+						"fromNode": 576667427,
+						"toNode": 307629499
+					},
+					{
+						"wayId": 29359547,
+						"fromNode": 322941453,
+						"toNode": 322941427
+					},
+					{
+						"wayId": 28015071,
+						"fromNode": 307631853,
+						"toNode": 307631849
+					},
+					{
+						"wayId": 28015441,
+						"fromNode": 307631849,
+						"toNode": 2542049485
+					},
+					{
+						"wayId": 679376268,
+						"fromNode": 2542049485,
+						"toNode": 924250249
+					},
+					{
+						"wayId": 8070571,
+						"fromNode": 924250249,
+						"toNode": 60402207
+					},
+					{
+						"wayId": 346007171,
+						"fromNode": 60402207,
+						"toNode": 60402208
+					},
+					{
+						"wayId": 346007169,
+						"fromNode": 3526059250,
+						"toNode": 582597580
+					},
+					{
+						"wayId": 346007176,
+						"fromNode": 582597580,
+						"toNode": 1024691418
+					},
+					{
+						"wayId": 346007178,
+						"fromNode": 582597620,
+						"toNode": 1025622114
+					},
+					{
+						"wayId": 705618568,
+						"fromNode": 1025622114,
+						"toNode": 2082364944
+					},
+					{
+						"wayId": 471154451,
+						"fromNode": 7130533496,
+						"toNode": 425330783
+					},
+					{
+						"wayId": 346007164,
+						"fromNode": 967200520,
+						"toNode": 582593532
+					},
+					{
+						"wayId": 759180703,
+						"fromNode": 582593532,
+						"toNode": 7090912334
+					},
+					{
+						"wayId": 759180702,
+						"fromNode": 7090912334,
+						"toNode": 7090912335
+					},
+					{
+						"wayId": 762938615,
+						"fromNode": 7090912335,
+						"toNode": 7129170291
+					},
+					{
+						"wayId": 1270091766,
+						"fromNode": 7129170291,
+						"toNode": 11793044760
+					},
+					{
+						"wayId": 197862900,
+						"fromNode": 11793044760,
+						"toNode": 582902718
+					},
+					{
+						"wayId": 762942202,
+						"fromNode": 582902718,
+						"toNode": 582902717
+					},
+					{
+						"wayId": 283745367,
+						"fromNode": 582902717,
+						"toNode": 582902716
+					},
+					{
+						"wayId": 346024088,
+						"fromNode": 582902716,
+						"toNode": 582902713
+					},
+					{
+						"wayId": 45772806,
+						"fromNode": 60401771,
+						"toNode": 297724655
+					},
+					{
+						"wayId": 809255361,
+						"fromNode": 7566817021,
+						"toNode": 60401771
+					},
+					{
+						"wayId": 307019254,
+						"fromNode": 25648399,
+						"toNode": 7566817021
+					},
+					{
+						"wayId": 810136072,
+						"fromNode": 946250806,
+						"toNode": 7566817013
+					},
+					{
+						"wayId": 307019255,
+						"fromNode": 25648397,
+						"toNode": 946250806
+					},
+					{
+						"wayId": 307019257,
+						"fromNode": 1888335289,
+						"toNode": 25648397
+					},
+					{
+						"wayId": 307019253,
+						"fromNode": 25648368,
+						"toNode": 1888335289
+					},
+					{
+						"wayId": 810136073,
+						"fromNode": 25648367,
+						"toNode": 25648368
+					},
+					{
+						"wayId": 749475852,
+						"fromNode": 967185091,
+						"toNode": 25648367
+					},
+					{
+						"wayId": 679383924,
+						"fromNode": 941552706,
+						"toNode": 6361754886
+					},
+					{
+						"wayId": 679383925,
+						"fromNode": 6361754886,
+						"toNode": 6361752180
+					},
+					{
+						"wayId": 679383901,
+						"fromNode": 1818305809,
+						"toNode": 6361752180
+					},
+					{
+						"wayId": 679383905,
+						"fromNode": 927225328,
+						"toNode": 25648343
+					},
+					{
+						"wayId": 306839969,
+						"fromNode": 925352540,
+						"toNode": 927225328
+					},
+					{
+						"wayId": 5170143,
+						"fromNode": 25648290,
+						"toNode": 925352383
+					},
+					{
+						"wayId": 678812437,
+						"fromNode": 927225197,
+						"toNode": 25648286
+					},
+					{
+						"wayId": 79978069,
+						"fromNode": 25648286,
+						"toNode": 12541568262
+					},
+					{
+						"wayId": 678812430,
+						"fromNode": 6029885954,
+						"toNode": 6029885956
+					},
+					{
+						"wayId": 174537996,
+						"fromNode": 6029885956,
+						"toNode": 25649661
+					},
+					{
+						"wayId": 196598732,
+						"fromNode": 12541568272,
+						"toNode": 25648662
+					},
+					{
+						"wayId": 76565865,
+						"fromNode": 25648662,
+						"toNode": 25648661
+					},
+					{
+						"wayId": 5172988,
+						"fromNode": 25648661,
+						"toNode": 902550178
+					},
+					{
+						"wayId": 76787270,
+						"fromNode": 902550178,
+						"toNode": 904599896
+					},
+					{
+						"wayId": 79056016,
+						"fromNode": 904599896,
+						"toNode": 25648751
+					},
+					{
+						"wayId": 77886443,
+						"fromNode": 12531672676,
+						"toNode": 25648675
+					},
+					{
+						"wayId": 804968606,
+						"fromNode": 25648675,
+						"toNode": 1902642199
+					},
+					{
+						"wayId": 214484446,
+						"fromNode": 12531672678,
+						"toNode": 25648681
+					},
+					{
+						"wayId": 76565859,
+						"fromNode": 25648681,
+						"toNode": 1445786327
+					},
+					{
+						"wayId": 180331973,
+						"fromNode": 25648746,
+						"toNode": 25648747
+					},
+					{
+						"wayId": 180331974,
+						"fromNode": 25648692,
+						"toNode": 9310265846
+					},
+					{
+						"wayId": 281056789,
+						"fromNode": 928535613,
+						"toNode": 25649703
+					},
+					{
+						"wayId": 5172808,
+						"fromNode": 25649703,
+						"toNode": 25649708
+					},
+					{
+						"wayId": 45754906,
+						"fromNode": 25649708,
+						"toNode": 905372035
+					},
+					{
+						"wayId": 579887368,
+						"fromNode": 905372035,
+						"toNode": 25649716
+					},
+					{
+						"wayId": 1296577187,
+						"fromNode": 25649716,
+						"toNode": 3915669727
+					},
+					{
+						"wayId": 5172807,
+						"fromNode": 1097214436,
+						"toNode": 3915669727
+					},
+					{
+						"wayId": 94247437,
+						"fromNode": 1097214436,
+						"toNode": 3915669721
+					},
+					{
+						"wayId": 837031463,
+						"fromNode": 3915669721,
+						"toNode": 1097214540
+					},
+					{
+						"wayId": 76565863,
+						"fromNode": 1097214540,
+						"toNode": 1097214568
+					},
+					{
+						"wayId": 225801950,
+						"fromNode": 1097214568,
+						"toNode": 952707504
+					},
+					{
+						"wayId": 180489730,
+						"fromNode": 952707504,
+						"toNode": 324647940
+					},
+					{
+						"wayId": 65259410,
+						"fromNode": 324647940,
+						"toNode": 1572770867
+					},
+					{
+						"wayId": 180489741,
+						"fromNode": 12531673709,
+						"toNode": 25647483
+					},
+					{
+						"wayId": 180489740,
+						"fromNode": 25647483,
+						"toNode": 1909230604
+					},
+					{
+						"wayId": 808077906,
+						"fromNode": 1909230604,
+						"toNode": 12531673711
+					},
+					{
+						"wayId": 180489739,
+						"fromNode": 12531673712,
+						"toNode": 1572770884
+					},
+					{
+						"wayId": 1009068438,
+						"fromNode": 1572770884,
+						"toNode": 797846556
+					},
+					{
+						"wayId": 195714086,
+						"fromNode": 797846556,
+						"toNode": 25647481
+					},
+					{
+						"wayId": 8159420,
+						"fromNode": 25647481,
+						"toNode": 12531673715
+					},
+					{
+						"wayId": 5070393,
+						"fromNode": 25647480,
+						"toNode": 25647478
+					},
+					{
+						"wayId": 8159421,
+						"fromNode": 12531673718,
+						"toNode": 25647476
+					},
+					{
+						"wayId": 79747001,
+						"fromNode": 25647476,
+						"toNode": 12531673722
+					},
+					{
+						"wayId": 28483092,
+						"fromNode": 4280647081,
+						"toNode": 1068407438
+					},
+					{
+						"wayId": 91957599,
+						"fromNode": 1946851160,
+						"toNode": 1068411394
+					},
+					{
+						"wayId": 91957602,
+						"fromNode": 1068411394,
+						"toNode": 1946851161
+					},
+					{
+						"wayId": 79686174,
+						"fromNode": 12531673726,
+						"toNode": 955733832
+					},
+					{
+						"wayId": 779551459,
+						"fromNode": 955733832,
+						"toNode": 1066927125
+					},
+					{
+						"wayId": 82139882,
+						"fromNode": 1066927125,
+						"toNode": 956452609
+					},
+					{
+						"wayId": 144714139,
+						"fromNode": 1582369224,
+						"toNode": 1568218018
+					},
+					{
+						"wayId": 805484055,
+						"fromNode": 297910638,
+						"toNode": 6361673897
+					},
+					{
+						"wayId": 679376261,
+						"fromNode": 6361673897,
+						"toNode": 2732482079
+					},
+					{
+						"wayId": 76565889,
+						"fromNode": 902550056,
+						"toNode": 1541473576
+					},
+					{
+						"wayId": 61808928,
+						"fromNode": 7404804742,
+						"toNode": 25654728
+					},
+					{
+						"wayId": 195878052,
+						"fromNode": 25654728,
+						"toNode": 306639272
+					},
+					{
+						"wayId": 791437444,
+						"fromNode": 306639272,
+						"toNode": 7398780467
+					},
+					{
+						"wayId": 791437445,
+						"fromNode": 7398780467,
+						"toNode": 25654729
+					},
+					{
+						"wayId": 173103142,
+						"fromNode": 1839315142,
+						"toNode": 25654729
+					},
+					{
+						"wayId": 696399828,
+						"fromNode": 1839315142,
+						"toNode": 242167087
+					},
+					{
+						"wayId": 91369067,
+						"fromNode": 242167085,
+						"toNode": 283848221
+					},
+					{
+						"wayId": 173103136,
+						"fromNode": 7397255221,
+						"toNode": 283848221
+					},
+					{
+						"wayId": 791268703,
+						"fromNode": 283848179,
+						"toNode": 7397255221
+					},
+					{
+						"wayId": 274513998,
+						"fromNode": 962321271,
+						"toNode": 2809382
+					},
+					{
+						"wayId": 804193524,
+						"fromNode": 2809382,
+						"toNode": 2809384
+					},
+					{
+						"wayId": 744178988,
+						"fromNode": 2809384,
+						"toNode": 1035567772
+					},
+					{
+						"wayId": 274513996,
+						"fromNode": 1035567772,
+						"toNode": 283849536
+					},
+					{
+						"wayId": 791124296,
+						"fromNode": 283849536,
+						"toNode": 8488632110
+					},
+					{
+						"wayId": 913811745,
+						"fromNode": 8488632110,
+						"toNode": 11399794226
+					},
+					{
+						"wayId": 1229249812,
+						"fromNode": 11399794226,
+						"toNode": 6357531548
+					},
+					{
+						"wayId": 83872012,
+						"fromNode": 6357531548,
+						"toNode": 1035567786
+					},
+					{
+						"wayId": 274513993,
+						"fromNode": 1035567786,
+						"toNode": 2809390
+					},
+					{
+						"wayId": 804193523,
+						"fromNode": 2809390,
+						"toNode": 2809391
+					},
+					{
+						"wayId": 28571110,
+						"fromNode": 2809391,
+						"toNode": 313849851
+					},
+					{
+						"wayId": 1229250451,
+						"fromNode": 313849851,
+						"toNode": 313849852
+					},
+					{
+						"wayId": 354964953,
+						"fromNode": 313849852,
+						"toNode": 2809399
+					},
+					{
+						"wayId": 76565842,
+						"fromNode": 2809399,
+						"toNode": 976218638
+					},
+					{
+						"wayId": 791785155,
+						"fromNode": 976218638,
+						"toNode": 306644652
+					},
+					{
+						"wayId": 228203699,
+						"fromNode": 306644652,
+						"toNode": 283853527
+					},
+					{
+						"wayId": 228203700,
+						"fromNode": 283853527,
+						"toNode": 931247818
+					},
+					{
+						"wayId": 228203701,
+						"fromNode": 931247818,
+						"toNode": 1993062542
+					},
+					{
+						"wayId": 228203702,
+						"fromNode": 1993062542,
+						"toNode": 2809404
+					},
+					{
+						"wayId": 79748440,
+						"fromNode": 2809404,
+						"toNode": 2809405
+					},
+					{
+						"wayId": 228203698,
+						"fromNode": 2809405,
+						"toNode": 1993062672
+					},
+					{
+						"wayId": 76565844,
+						"fromNode": 283852340,
+						"toNode": 283852338
+					},
+					{
+						"wayId": 696354703,
+						"fromNode": 1460311585,
+						"toNode": 283852338
+					},
+					{
+						"wayId": 174538001,
+						"fromNode": 1460311585,
+						"toNode": 5567160423
+					},
+					{
+						"wayId": 836716672,
+						"fromNode": 5567160423,
+						"toNode": 283852873
+					},
+					{
+						"wayId": 29349156,
+						"fromNode": 497304,
+						"toNode": 283852599
+					},
+					{
+						"wayId": 80232748,
+						"fromNode": 929558431,
+						"toNode": 929558213
+					},
+					{
+						"wayId": 79686666,
+						"fromNode": 929558213,
+						"toNode": 2062848891
+					},
+					{
+						"wayId": 858822657,
+						"fromNode": 2062848891,
+						"toNode": 768498734
+					},
+					{
+						"wayId": 805484056,
+						"fromNode": 1568218018,
+						"toNode": 297910638
+					},
+					{
+						"wayId": 1461265438,
+						"fromNode": 322941453,
+						"toNode": 576667427
+					},
+					{
+						"wayId": 1461265440,
+						"fromNode": 322941427,
+						"toNode": 287025951
+					},
+					{
+						"wayId": 1461265439,
+						"fromNode": 287025951,
+						"toNode": 307631853
+					},
+					{
+						"wayId": 1356340461,
+						"fromNode": 60402208,
+						"toNode": 12553306915
+					},
+					{
+						"wayId": 346007180,
+						"fromNode": 12553306915,
+						"toNode": 3526059250
+					},
+					{
+						"wayId": 1356340462,
+						"fromNode": 1024691418,
+						"toNode": 12553306918
+					},
+					{
+						"wayId": 346007173,
+						"fromNode": 12553306918,
+						"toNode": 582597620
+					},
+					{
+						"wayId": 763059282,
+						"fromNode": 2082364944,
+						"toNode": 7130533496
+					},
+					{
+						"wayId": 1461478495,
+						"fromNode": 425330783,
+						"toNode": 13348367957
+					},
+					{
+						"wayId": 1461478496,
+						"fromNode": 13348367957,
+						"toNode": 967200520
+					},
+					{
+						"wayId": 1356342938,
+						"fromNode": 12553297623,
+						"toNode": 582902713
+					},
+					{
+						"wayId": 45773359,
+						"fromNode": 297724655,
+						"toNode": 12553297623
+					},
+					{
+						"wayId": 1356313536,
+						"fromNode": 12552998461,
+						"toNode": 25648399
+					},
+					{
+						"wayId": 307019256,
+						"fromNode": 7566817013,
+						"toNode": 12552998461
+					},
+					{
+						"wayId": 1356313535,
+						"fromNode": 12552998456,
+						"toNode": 967185091
+					},
+					{
+						"wayId": 80735624,
+						"fromNode": 941552706,
+						"toNode": 12552998456
+					},
+					{
+						"wayId": 1353093297,
+						"fromNode": 12520133073,
+						"toNode": 1818305809
+					},
+					{
+						"wayId": 679383904,
+						"fromNode": 25648343,
+						"toNode": 12520133073
+					},
+					{
+						"wayId": 696421616,
+						"fromNode": 12541568244,
+						"toNode": 925352540
+					},
+					{
+						"wayId": 1355153021,
+						"fromNode": 925352383,
+						"toNode": 12541568244
+					},
+					{
+						"wayId": 1355153022,
+						"fromNode": 12541568245,
+						"toNode": 25648290
+					},
+					{
+						"wayId": 1355153023,
+						"fromNode": 3915691893,
+						"toNode": 12541568245
+					},
+					{
+						"wayId": 79420973,
+						"fromNode": 927225197,
+						"toNode": 3915691893
+					},
+					{
+						"wayId": 1355153028,
+						"fromNode": 12541568262,
+						"toNode": 6029885954
+					},
+					{
+						"wayId": 1355153031,
+						"fromNode": 25649661,
+						"toNode": 904599869
+					},
+					{
+						"wayId": 1355153032,
+						"fromNode": 904599869,
+						"toNode": 499270188
+					},
+					{
+						"wayId": 1355153033,
+						"fromNode": 499270188,
+						"toNode": 12541568272
+					},
+					{
+						"wayId": 1354172541,
+						"fromNode": 25648751,
+						"toNode": 12531672676
+					},
+					{
+						"wayId": 1354172542,
+						"fromNode": 1902642199,
+						"toNode": 12531672678
+					},
+					{
+						"wayId": 1354172543,
+						"fromNode": 1445786327,
+						"toNode": 25648746
+					},
+					{
+						"wayId": 1354172546,
+						"fromNode": 25648747,
+						"toNode": 12531672688
+					},
+					{
+						"wayId": 1354172545,
+						"fromNode": 12531672688,
+						"toNode": 25648692
+					},
+					{
+						"wayId": 1354172544,
+						"fromNode": 9310265846,
+						"toNode": 928535613
+					},
+					{
+						"wayId": 1354172556,
+						"fromNode": 1572770867,
+						"toNode": 12531673708
+					},
+					{
+						"wayId": 1354172557,
+						"fromNode": 12531673708,
+						"toNode": 12531673709
+					},
+					{
+						"wayId": 1354172558,
+						"fromNode": 12531673711,
+						"toNode": 1909230612
+					},
+					{
+						"wayId": 1354172559,
+						"fromNode": 1909230612,
+						"toNode": 12531673712
+					},
+					{
+						"wayId": 1354172561,
+						"fromNode": 12531673715,
+						"toNode": 25647480
+					},
+					{
+						"wayId": 1354172562,
+						"fromNode": 25647478,
+						"toNode": 12531673718
+					},
+					{
+						"wayId": 1354172563,
+						"fromNode": 12531673722,
+						"toNode": 1912248171
+					},
+					{
+						"wayId": 1354172565,
+						"fromNode": 1912248171,
+						"toNode": 4280647081
+					},
+					{
+						"wayId": 1354172566,
+						"fromNode": 1068407438,
+						"toNode": 12531673725
+					},
+					{
+						"wayId": 1354172564,
+						"fromNode": 12531673725,
+						"toNode": 1946851160
+					},
+					{
+						"wayId": 1354172567,
+						"fromNode": 1946851161,
+						"toNode": 12531673726
+					},
+					{
+						"wayId": 388346627,
+						"fromNode": 3915562610,
+						"toNode": 924625466
+					},
+					{
+						"wayId": 90914360,
+						"fromNode": 2732482079,
+						"toNode": 3915562610
+					},
+					{
+						"wayId": 4272864,
+						"fromNode": 924625466,
+						"toNode": 3915562626
+					},
+					{
+						"wayId": 388346634,
+						"fromNode": 388432583,
+						"toNode": 1538577582
+					},
+					{
+						"wayId": 780386678,
+						"fromNode": 3915562626,
+						"toNode": 388432583
+					},
+					{
+						"wayId": 39611525,
+						"fromNode": 1538577582,
+						"toNode": 1018701352
+					},
+					{
+						"wayId": 144795547,
+						"fromNode": 1018701352,
+						"toNode": 902550056
+					},
+					{
+						"wayId": 1197202944,
+						"fromNode": 1541473576,
+						"toNode": 12531313647
+					},
+					{
+						"wayId": 1354136275,
+						"fromNode": 12531313647,
+						"toNode": 1541473508
+					},
+					{
+						"wayId": 626112132,
+						"fromNode": 1541473508,
+						"toNode": 6547235551
+					},
+					{
+						"wayId": 1354136277,
+						"fromNode": 6547235551,
+						"toNode": 3914540607
+					},
+					{
+						"wayId": 1196660212,
+						"fromNode": 3914540607,
+						"toNode": 1541473545
+					},
+					{
+						"wayId": 1355323933,
+						"fromNode": 6045735890,
+						"toNode": 12543244719
+					},
+					{
+						"wayId": 1354136273,
+						"fromNode": 12543244719,
+						"toNode": 12531313642
+					},
+					{
+						"wayId": 792060682,
+						"fromNode": 12531313641,
+						"toNode": 7404804742
+					},
+					{
+						"wayId": 1356103883,
+						"fromNode": 12550528797,
+						"toNode": 242167087
+					},
+					{
+						"wayId": 1356103882,
+						"fromNode": 12550442987,
+						"toNode": 12550528797
+					},
+					{
+						"wayId": 91369066,
+						"fromNode": 242167085,
+						"toNode": 12550442987
+					},
+					{
+						"wayId": 76565892,
+						"fromNode": 283848179,
+						"toNode": 2809379
+					},
+					{
+						"wayId": 1351625993,
+						"fromNode": 2809379,
+						"toNode": 12505035182
+					},
+					{
+						"wayId": 1351625994,
+						"fromNode": 12505035182,
+						"toNode": 962321271
+					},
+					{
+						"wayId": 228203696,
+						"fromNode": 1993062672,
+						"toNode": 12505035189
+					},
+					{
+						"wayId": 1351625995,
+						"fromNode": 12505035189,
+						"toNode": 6539223439
+					},
+					{
+						"wayId": 1351627418,
+						"fromNode": 6539223439,
+						"toNode": 12505048481
+					},
+					{
+						"wayId": 228203697,
+						"fromNode": 12505048481,
+						"toNode": 2368373266
+					},
+					{
+						"wayId": 1351627420,
+						"fromNode": 2368373266,
+						"toNode": 283852340
+					},
+					{
+						"wayId": 1354937342,
+						"fromNode": 283852873,
+						"toNode": 8890623237
+					},
+					{
+						"wayId": 188683558,
+						"fromNode": 12539237424,
+						"toNode": 283852599
+					},
+					{
+						"wayId": 1353905055,
+						"fromNode": 497304,
+						"toNode": 12528967841
+					},
+					{
+						"wayId": 27938571,
+						"fromNode": 12528967841,
+						"toNode": 12339717137
+					},
+					{
+						"wayId": 1353905054,
+						"fromNode": 12339717137,
+						"toNode": 929558431
+					}
+				]
+			}
+		</script>
 
-  <osm-route-viewer></osm-route-viewer>
+		<osm-route-viewer></osm-route-viewer>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="viewer.js"></script>
-</body>
+		<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+		<script type="module" src="viewer.js"></script>
+	</body>
 </html>

@@ -174,7 +174,9 @@ class OSMMap extends HTMLElement {
 			},
 		})
 		this.$toolbox = this.shadowRoot.querySelector('map-toolbox')
-		this.$annotationEditor = this.shadowRoot.querySelector('map-annotation-editor')
+		this.$annotationEditor = this.shadowRoot.querySelector(
+			'map-annotation-editor'
+		)
 
 		this.map.on('mousemove', (e) => this.onMouseMove(e))
 		this.map.on('click', (e) => this.onMapClick(e))
@@ -1084,7 +1086,8 @@ class OSMMap extends HTMLElement {
 	updateToolbox() {
 		this.$toolbox?.setState({
 			interactionMode: this.options.interactionMode,
-			currentDrawingColor: this.normalizeColor(this.options.currentDrawingColor) || '#0060DD',
+			currentDrawingColor:
+				this.normalizeColor(this.options.currentDrawingColor) || '#0060DD',
 			selectedAnnotationId: this.options.selectedAnnotationId,
 			editingAnnotationId: this.options.editingAnnotationId,
 			annotationDraft: this.options.annotationDraft,
@@ -1100,11 +1103,14 @@ class OSMMap extends HTMLElement {
 		if (!this.map) return
 		if (this.options.editingAnnotationId) {
 			if (this.map.dragging?.enabled()) this.map.dragging.disable()
-			if (this.map.doubleClickZoom?.enabled()) this.map.doubleClickZoom.disable()
+			if (this.map.doubleClickZoom?.enabled())
+				this.map.doubleClickZoom.disable()
 			return
 		}
-		if (this.map.dragging && !this.map.dragging.enabled()) this.map.dragging.enable()
-		if (this.map.doubleClickZoom && !this.map.doubleClickZoom.enabled()) this.map.doubleClickZoom.enable()
+		if (this.map.dragging && !this.map.dragging.enabled())
+			this.map.dragging.enable()
+		if (this.map.doubleClickZoom && !this.map.doubleClickZoom.enabled())
+			this.map.doubleClickZoom.enable()
 	}
 
 	updateAnnotationEditor() {
@@ -1116,7 +1122,10 @@ class OSMMap extends HTMLElement {
 			this.$annotationEditor.setState({ open: false, annotation: null })
 			return
 		}
-		const point = this.map.latLngToContainerPoint([annotation.lat, annotation.lon])
+		const point = this.map.latLngToContainerPoint([
+			annotation.lat,
+			annotation.lon,
+		])
 		this.$annotationEditor.setState({
 			open: true,
 			annotation,
@@ -1159,16 +1168,19 @@ class OSMMap extends HTMLElement {
 		poly.bindTooltip(
 			`way ${wayId}${name}${kind ? ` · ${kind}` : ''}<br><small>${hint}</small>${reasons}${alternate}`,
 			{
-			sticky: true,
-			direction: 'top',
-			opacity: 0.9,
+				sticky: true,
+				direction: 'top',
+				opacity: 0.9,
 			}
 		)
 	}
 
 	onMouseMove(e) {
 		if (this.options.readOnly) return
-		if (this.options.interactionMode === 'select' || this.options.interactionMode === 'annotate') {
+		if (
+			this.options.interactionMode === 'select' ||
+			this.options.interactionMode === 'annotate'
+		) {
 			this.clearHover()
 			return
 		}
@@ -1194,7 +1206,9 @@ class OSMMap extends HTMLElement {
 			}
 
 			const sameWay = best.wayId === this.hoveredWayId
-			const sameReason = JSON.stringify(best.reasons || []) === JSON.stringify(this.hoverMatch?.reasons || [])
+			const sameReason =
+				JSON.stringify(best.reasons || []) ===
+				JSON.stringify(this.hoverMatch?.reasons || [])
 			if (!sameWay || !sameReason) {
 				this.renderHoverWay(best.wayId, best)
 			}
@@ -1385,11 +1399,14 @@ class OSMMap extends HTMLElement {
 				opacity: isSelected ? 1.0 : 0.75,
 				bubblingMouseEvents: false,
 			}).addTo(this.selectedLayer)
-			line.bindTooltip(`Segment ${idx + 1} · way ${seg.wayId}${seg.color ? ` · ${seg.color}` : ''}`, {
-				sticky: true,
-				direction: 'top',
-				opacity: 0.9,
-			})
+			line.bindTooltip(
+				`Segment ${idx + 1} · way ${seg.wayId}${seg.color ? ` · ${seg.color}` : ''}`,
+				{
+					sticky: true,
+					direction: 'top',
+					opacity: 0.9,
+				}
+			)
 			line.on('click', (ev) => {
 				L.DomEvent.stop(ev)
 				L.DomEvent.stopPropagation(ev)
@@ -1648,8 +1665,12 @@ class OSMMap extends HTMLElement {
 	}
 
 	addTextAnnotationAt(latlng) {
-		const color = this.normalizeColor(this.options.annotationDraft?.color) || '#1B2A41'
-		const fontSize = this.normalizeAnnotationFontSize(this.options.annotationDraft?.fontSize) || 12
+		const color =
+			this.normalizeColor(this.options.annotationDraft?.color) || '#1B2A41'
+		const fontSize =
+			this.normalizeAnnotationFontSize(
+				this.options.annotationDraft?.fontSize
+			) || 12
 		const text = 'New annotation'
 
 		this.dispatchEvent(
@@ -1671,7 +1692,8 @@ class OSMMap extends HTMLElement {
 		)
 
 		this.emitStatus({
-			pickStatus: 'Annotation ajoutée : double-clique la note pour modifier son texte.',
+			pickStatus:
+				'Annotation ajoutée : double-clique la note pour modifier son texte.',
 			error: null,
 		})
 	}

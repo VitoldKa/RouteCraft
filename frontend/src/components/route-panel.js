@@ -1,35 +1,35 @@
 class RoutePanel extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this.state = {
-      route: [],
-      strict: true,
-      autoLoad: true,
-      lastError: null,
-      pickStatus: "Aucun point",
-      ioStatus: { kind: "ok", text: "Synchronisé" },
-      dirty: false,
-      selectedIndex: -1,
-    };
-  }
+	constructor() {
+		super()
+		this.attachShadow({ mode: 'open' })
+		this.state = {
+			route: [],
+			strict: true,
+			autoLoad: true,
+			lastError: null,
+			pickStatus: 'Aucun point',
+			ioStatus: { kind: 'ok', text: 'Synchronisé' },
+			dirty: false,
+			selectedIndex: -1,
+		}
+	}
 
-  connectedCallback() {
-    this.render();
-  }
+	connectedCallback() {
+		this.render()
+	}
 
-  setState(next) {
-    this.state = { ...this.state, ...next };
-    this.render();
-  }
+	setState(next) {
+		this.state = { ...this.state, ...next }
+		this.render()
+	}
 
-  render() {
-    const s = this.state;
-    const errStyle = s.lastError ? "" : "display:none;";
-    const ioClass = s.ioStatus?.kind || "";
-    const ioText = s.ioStatus?.text || "—";
+	render() {
+		const s = this.state
+		const errStyle = s.lastError ? '' : 'display:none;'
+		const ioClass = s.ioStatus?.kind || ''
+		const ioText = s.ioStatus?.text || '—'
 
-    this.shadowRoot.innerHTML = `
+		this.shadowRoot.innerHTML = `
       <style>
         .panel { padding: 12px; }
         h3 { margin: 0 0 8px 0; }
@@ -77,12 +77,12 @@ class RoutePanel extends HTMLElement {
 
         <div class="row">
           <label class="row" style="gap:6px;">
-            <input id="autoLoad" type="checkbox" ${s.autoLoad ? "checked" : ""}/>
+            <input id="autoLoad" type="checkbox" ${s.autoLoad ? 'checked' : ''}/>
             <span>Charger la zone visible</span>
           </label>
 
           <label class="row" style="gap:6px;">
-            <input id="strict" type="checkbox" ${s.strict ? "checked" : ""}/>
+            <input id="strict" type="checkbox" ${s.strict ? 'checked' : ''}/>
             <span>Continuité stricte</span>
           </label>
         </div>
@@ -99,7 +99,7 @@ class RoutePanel extends HTMLElement {
           </div>
           <div class="muted">
             <div><strong>Dernière erreur</strong></div>
-            <div id="err" class="pill danger" style="${errStyle}">${s.lastError || ""}</div>
+            <div id="err" class="pill danger" style="${errStyle}">${s.lastError || ''}</div>
           </div>
         </div>
 
@@ -118,30 +118,56 @@ class RoutePanel extends HTMLElement {
           ${s.dirty ? `<span class="pill warn">Non appliqué</span>` : ``}
         </div>
       </div>
-    `;
+    `
 
-    // toggles
-    this.shadowRoot.querySelector("#autoLoad").addEventListener("change", (e) => {
-      this.dispatchEvent(new CustomEvent("toggle", { detail: { name: "autoLoad", value: e.target.checked }, bubbles: true, composed: true }));
-    });
-    this.shadowRoot.querySelector("#strict").addEventListener("change", (e) => {
-      this.dispatchEvent(new CustomEvent("toggle", { detail: { name: "strict", value: e.target.checked }, bubbles: true, composed: true }));
-    });
+		// toggles
+		this.shadowRoot
+			.querySelector('#autoLoad')
+			.addEventListener('change', (e) => {
+				this.dispatchEvent(
+					new CustomEvent('toggle', {
+						detail: { name: 'autoLoad', value: e.target.checked },
+						bubbles: true,
+						composed: true,
+					})
+				)
+			})
+		this.shadowRoot.querySelector('#strict').addEventListener('change', (e) => {
+			this.dispatchEvent(
+				new CustomEvent('toggle', {
+					detail: { name: 'strict', value: e.target.checked },
+					bubbles: true,
+					composed: true,
+				})
+			)
+		})
 
-    // actions
-    this.shadowRoot.querySelector("#reload").addEventListener("click", () => this.emitAction("reload-bbox"));
-    this.shadowRoot.querySelector("#clear").addEventListener("click", () => this.emitAction("clear"));
-    this.shadowRoot.querySelector("#export").addEventListener("click", () => this.emitAction("export"));
-    this.shadowRoot.querySelector("#import").addEventListener("click", () => this.emitAction("import"));
-    this.shadowRoot.querySelector("#loadFromRoute").addEventListener("click", () => this.emitAction("load-from-route"));
-    this.shadowRoot.querySelector("#format").addEventListener("click", () => this.emitAction("format"));
+		// actions
+		this.shadowRoot
+			.querySelector('#reload')
+			.addEventListener('click', () => this.emitAction('reload-bbox'))
+		this.shadowRoot
+			.querySelector('#clear')
+			.addEventListener('click', () => this.emitAction('clear'))
+		this.shadowRoot
+			.querySelector('#export')
+			.addEventListener('click', () => this.emitAction('export'))
+		this.shadowRoot
+			.querySelector('#import')
+			.addEventListener('click', () => this.emitAction('import'))
+		this.shadowRoot
+			.querySelector('#loadFromRoute')
+			.addEventListener('click', () => this.emitAction('load-from-route'))
+		this.shadowRoot
+			.querySelector('#format')
+			.addEventListener('click', () => this.emitAction('format'))
 
-    // list
-    const list = this.shadowRoot.querySelector("#list");
-    s.route.forEach((seg, idx) => {
-      const div = document.createElement("div");
-      div.className = "item" + (s.selectedIndex === idx ? " selected" : "");
-      div.innerHTML = `
+		// list
+		const list = this.shadowRoot.querySelector('#list')
+		s.route.forEach((seg, idx) => {
+			const div = document.createElement('div')
+			div.className = 'item' + (s.selectedIndex === idx ? ' selected' : '')
+			div.innerHTML = `
         <div class="itemTop">
           <div>
             <strong>${idx + 1}.</strong> way ${seg.wayId}<br>
@@ -154,37 +180,47 @@ class RoutePanel extends HTMLElement {
             <button class="small" data-act="del">✕</button>
           </div>
         </div>
-      `;
+      `
 
+			// click item = select (focus mode)
+			div.addEventListener('click', (ev) => {
+				// si click sur un bouton, ne pas sélectionner
+				if (ev.target.tagName === 'BUTTON') return
+				this.dispatchEvent(
+					new CustomEvent('select-segment', {
+						detail: { index: idx },
+						bubbles: true,
+						composed: true,
+					})
+				)
+			})
 
+			div.querySelectorAll('button').forEach((btn) => {
+				btn.addEventListener('click', () => {
+					const act = btn.getAttribute('data-act')
+					this.dispatchEvent(
+						new CustomEvent('route-edit', {
+							detail: { op: { type: act, index: idx } },
+							bubbles: true,
+							composed: true,
+						})
+					)
+				})
+			})
 
-      // click item = select (focus mode)
-      div.addEventListener("click", (ev) => {
-        // si click sur un bouton, ne pas sélectionner
-        if (ev.target.tagName === "BUTTON") return;
-        this.dispatchEvent(new CustomEvent("select-segment", {
-          detail: { index: idx },
-          bubbles: true, composed: true
-        }));
-      });
+			list.appendChild(div)
+		})
+	}
 
-      div.querySelectorAll("button").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const act = btn.getAttribute("data-act");
-          this.dispatchEvent(new CustomEvent("route-edit", {
-            detail: { op: { type: act, index: idx } },
-            bubbles: true, composed: true
-          }));
-        });
-      });
-
-      list.appendChild(div);
-    });
-  }
-
-  emitAction(type) {
-    this.dispatchEvent(new CustomEvent("action", { detail: { type }, bubbles: true, composed: true }));
-  }
+	emitAction(type) {
+		this.dispatchEvent(
+			new CustomEvent('action', {
+				detail: { type },
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 }
 
-customElements.define("route-panel", RoutePanel);
+customElements.define('route-panel', RoutePanel)

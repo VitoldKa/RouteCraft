@@ -1,37 +1,37 @@
 class MapAnnotationEditor extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this.state = {
-      open: false,
-      annotation: null,
-      position: { x: 0, y: 0 },
-    };
-    this.activeAnnotationId = null;
-  }
+	constructor() {
+		super()
+		this.attachShadow({ mode: 'open' })
+		this.state = {
+			open: false,
+			annotation: null,
+			position: { x: 0, y: 0 },
+		}
+		this.activeAnnotationId = null
+	}
 
-  connectedCallback() {
-    if (!this.shadowRoot.hasChildNodes()) {
-      this.render();
-      this.bindEvents();
-    }
-    this.updateUI();
-  }
+	connectedCallback() {
+		if (!this.shadowRoot.hasChildNodes()) {
+			this.render()
+			this.bindEvents()
+		}
+		this.updateUI()
+	}
 
-  setState(next) {
-    this.state = {
-      ...this.state,
-      ...next,
-      position: {
-        ...(this.state.position || { x: 0, y: 0 }),
-        ...(next?.position || {}),
-      },
-    };
-    this.updateUI();
-  }
+	setState(next) {
+		this.state = {
+			...this.state,
+			...next,
+			position: {
+				...(this.state.position || { x: 0, y: 0 }),
+				...(next?.position || {}),
+			},
+		}
+		this.updateUI()
+	}
 
-  render() {
-    this.shadowRoot.innerHTML = `
+	render() {
+		this.shadowRoot.innerHTML = `
       <style>
         :host {
           position: absolute;
@@ -96,115 +96,125 @@ class MapAnnotationEditor extends HTMLElement {
           <button id="save" class="btn primary" type="button">Save</button>
         </div>
       </div>
-    `;
-  }
+    `
+	}
 
-  bindEvents() {
-    const editor = this.shadowRoot.querySelector("#editor");
-    const textarea = this.shadowRoot.querySelector("#textarea");
-    const save = this.shadowRoot.querySelector("#save");
-    const cancel = this.shadowRoot.querySelector("#cancel");
+	bindEvents() {
+		const editor = this.shadowRoot.querySelector('#editor')
+		const textarea = this.shadowRoot.querySelector('#textarea')
+		const save = this.shadowRoot.querySelector('#save')
+		const cancel = this.shadowRoot.querySelector('#cancel')
 
-    const stop = (event) => {
-      event.stopPropagation();
-    };
+		const stop = (event) => {
+			event.stopPropagation()
+		}
 
-    ["pointerdown", "mousedown", "click", "dblclick"].forEach((eventName) => {
-      editor.addEventListener(eventName, stop);
-      textarea.addEventListener(eventName, stop);
-      save.addEventListener(eventName, stop);
-      cancel.addEventListener(eventName, stop);
-    });
+		;['pointerdown', 'mousedown', 'click', 'dblclick'].forEach((eventName) => {
+			editor.addEventListener(eventName, stop)
+			textarea.addEventListener(eventName, stop)
+			save.addEventListener(eventName, stop)
+			cancel.addEventListener(eventName, stop)
+		})
 
-    textarea.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.emitCancel();
-        return;
-      }
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        this.emitSave();
-      }
-    });
+		textarea.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault()
+				this.emitCancel()
+				return
+			}
+			if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+				event.preventDefault()
+				this.emitSave()
+			}
+		})
 
-    save.addEventListener("click", () => this.emitSave());
-    cancel.addEventListener("click", () => this.emitCancel());
-  }
+		save.addEventListener('click', () => this.emitSave())
+		cancel.addEventListener('click', () => this.emitCancel())
+	}
 
-  updateUI() {
-    const editor = this.shadowRoot.querySelector("#editor");
-    const textarea = this.shadowRoot.querySelector("#textarea");
-    if (!editor || !textarea) return;
+	updateUI() {
+		const editor = this.shadowRoot.querySelector('#editor')
+		const textarea = this.shadowRoot.querySelector('#textarea')
+		if (!editor || !textarea) return
 
-    const open = !!this.state.open && !!this.state.annotation;
-    const annotation = this.state.annotation || null;
-    const annotationId = annotation?.id || null;
-    const isNewSession = open && annotationId !== this.activeAnnotationId;
-    editor.classList.toggle("open", open);
+		const open = !!this.state.open && !!this.state.annotation
+		const annotation = this.state.annotation || null
+		const annotationId = annotation?.id || null
+		const isNewSession = open && annotationId !== this.activeAnnotationId
+		editor.classList.toggle('open', open)
 
-    if (!open) {
-      this.activeAnnotationId = null;
-      return;
-    }
+		if (!open) {
+			this.activeAnnotationId = null
+			return
+		}
 
-    const fontSize = this.normalizeFontSize(annotation.fontSize);
-    const color = this.normalizeColor(annotation.color);
-    textarea.style.font = `600 ${fontSize}px/1.25 Georgia, serif`;
-    textarea.style.color = color;
-    if (isNewSession) {
-      this.activeAnnotationId = annotationId;
-      textarea.value = String(annotation.text || "");
-    }
+		const fontSize = this.normalizeFontSize(annotation.fontSize)
+		const color = this.normalizeColor(annotation.color)
+		textarea.style.font = `600 ${fontSize}px/1.25 Georgia, serif`
+		textarea.style.color = color
+		if (isNewSession) {
+			this.activeAnnotationId = annotationId
+			textarea.value = String(annotation.text || '')
+		}
 
-    requestAnimationFrame(() => {
-      this.positionEditor(editor);
-      if (isNewSession && this.shadowRoot.activeElement !== textarea) {
-        textarea.focus();
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-      }
-    });
-  }
+		requestAnimationFrame(() => {
+			this.positionEditor(editor)
+			if (isNewSession && this.shadowRoot.activeElement !== textarea) {
+				textarea.focus()
+				textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+			}
+		})
+	}
 
-  positionEditor(editor) {
-    const width = this.clientWidth || 0;
-    const height = this.clientHeight || 0;
-    const editorWidth = editor.offsetWidth || 280;
-    const editorHeight = editor.offsetHeight || 160;
-    const desiredX = Math.round(this.state.position?.x ?? 0);
-    const desiredY = Math.round(this.state.position?.y ?? 0);
-    const x = Math.max(12, Math.min(desiredX, Math.max(12, width - editorWidth - 12)));
-    const y = Math.max(12, Math.min(desiredY, Math.max(12, height - editorHeight - 12)));
-    editor.style.left = `${x}px`;
-    editor.style.top = `${y}px`;
-  }
+	positionEditor(editor) {
+		const width = this.clientWidth || 0
+		const height = this.clientHeight || 0
+		const editorWidth = editor.offsetWidth || 280
+		const editorHeight = editor.offsetHeight || 160
+		const desiredX = Math.round(this.state.position?.x ?? 0)
+		const desiredY = Math.round(this.state.position?.y ?? 0)
+		const x = Math.max(
+			12,
+			Math.min(desiredX, Math.max(12, width - editorWidth - 12))
+		)
+		const y = Math.max(
+			12,
+			Math.min(desiredY, Math.max(12, height - editorHeight - 12))
+		)
+		editor.style.left = `${x}px`
+		editor.style.top = `${y}px`
+	}
 
-  emitSave() {
-    const textarea = this.shadowRoot.querySelector("#textarea");
-    this.dispatchEvent(new CustomEvent("annotation-editor-save", {
-      detail: { text: textarea?.value ?? "" },
-      bubbles: true,
-      composed: true,
-    }));
-  }
+	emitSave() {
+		const textarea = this.shadowRoot.querySelector('#textarea')
+		this.dispatchEvent(
+			new CustomEvent('annotation-editor-save', {
+				detail: { text: textarea?.value ?? '' },
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 
-  emitCancel() {
-    this.dispatchEvent(new CustomEvent("annotation-editor-cancel", {
-      bubbles: true,
-      composed: true,
-    }));
-  }
+	emitCancel() {
+		this.dispatchEvent(
+			new CustomEvent('annotation-editor-cancel', {
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 
-  normalizeColor(value) {
-    const color = typeof value === "string" ? value.trim() : "";
-    return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : "#1B2A41";
-  }
+	normalizeColor(value) {
+		const color = typeof value === 'string' ? value.trim() : ''
+		return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : '#1B2A41'
+	}
 
-  normalizeFontSize(value) {
-    const size = Number(value);
-    if (!Number.isFinite(size)) return 12;
-    return Math.max(10, Math.min(32, Math.round(size)));
-  }
+	normalizeFontSize(value) {
+		const size = Number(value)
+		if (!Number.isFinite(size)) return 12
+		return Math.max(10, Math.min(32, Math.round(size)))
+	}
 }
 
-customElements.define("map-annotation-editor", MapAnnotationEditor);
+customElements.define('map-annotation-editor', MapAnnotationEditor)

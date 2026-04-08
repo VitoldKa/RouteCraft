@@ -1,18 +1,18 @@
 class JsonEditor extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
+	constructor() {
+		super()
+		this.attachShadow({ mode: 'open' })
 
-    this.cm = null;
-    this.lastAppliedText = "";
-    this.dirty = false;
+		this.cm = null
+		this.lastAppliedText = ''
+		this.dirty = false
 
-    this._ro = null;
-    this._initTried = false;
-  }
+		this._ro = null
+		this._initTried = false
+	}
 
-  connectedCallback() {
-    this.shadowRoot.innerHTML = `
+	connectedCallback() {
+		this.shadowRoot.innerHTML = `
       <style>
         :host { display:block; }
         .wrap { padding: 0 12px 12px 12px; }
@@ -52,248 +52,225 @@ class JsonEditor extends HTMLElement {
         <textarea id="ta" spellcheck="false"></textarea>
         <div id="err" class="err"></div>
       </div>
-    `;
+    `
 
-    // Init CodeMirror après layout + quand CodeMirror est dispo
-    this.initWhenReady();
-  }
+		// Init CodeMirror après layout + quand CodeMirror est dispo
+		this.initWhenReady()
+	}
 
-  disconnectedCallback() {
-    if (this._ro) this._ro.disconnect();
-  }
+	disconnectedCallback() {
+		if (this._ro) this._ro.disconnect()
+	}
 
-  // ---------- Public API ----------
-  setJSON(obj) {
-    const text = JSON.stringify(obj, null, 2);
-    if (this.cm) {
-      this.cm.setValue(text);
-      this.lastAppliedText = text;
-      this.dirty = false;
-      this.emitDirty({ valid: true });
-      this.safeRefresh();
-    } else {
-      // si setJSON appelé avant init
-      this._pendingValue = text;
-    }
-  }
+	// ---------- Public API ----------
+	setJSON(obj) {
+		const text = JSON.stringify(obj, null, 2)
+		if (this.cm) {
+			this.cm.setValue(text)
+			this.lastAppliedText = text
+			this.dirty = false
+			this.emitDirty({ valid: true })
+			this.safeRefresh()
+		} else {
+			// si setJSON appelé avant init
+			this._pendingValue = text
+		}
+	}
 
-  format() {
-    if (!this.cm) return;
-    const txt = this.cm.getValue().trim();
-    if (!txt) return;
-    try {
-      const obj = JSON.parse(txt);
-      this.cm.setValue(JSON.stringify(obj, null, 2));
-      this.safeRefresh();
-    } catch {
-      // lint affichera l’erreur
-    }
-  }
+	format() {
+		if (!this.cm) return
+		const txt = this.cm.getValue().trim()
+		if (!txt) return
+		try {
+			const obj = JSON.parse(txt)
+			this.cm.setValue(JSON.stringify(obj, null, 2))
+			this.safeRefresh()
+		} catch {
+			// lint affichera l’erreur
+		}
+	}
 
-  getParsed() {
-    const txt = (this.cm ? this.cm.getValue() : "").trim();
-    if (!txt) return { ok: false, errors: ["Champ JSON vide."], route: [], annotations: [] };
+	getParsed() {
+		const txt = (this.cm ? this.cm.getValue() : '').trim()
+		arr.forEach((s, i) => {
+			const wayId = Number(s?.wayId)
+			const fromNode = Number(s?.fromNode)
+			const toNode = Number(s?.toNode)
+			const color = this.normalizeSegmentColor(s?.color)
 
-    let obj;
-    try { obj = JSON.parse(txt); }
-    catch { return { ok: false, errors: ["JSON invalide (syntaxe)."], route: [], annotations: [] }; }
+			if (!Number.isInteger(wayId) || wayId <= 0)
+				errors.push(`Segment #${i + 1}: wayId invalide`)
+			if (!Number.isInteger(fromNode) || fromNode <= 0)
+				errors.push(`Segment #${i + 1}: fromNode invalide`)
+			if (!Number.isInteger(toNode) || toNode <= 0)
+				errors.push(`Segment #${i + 1}: toNode invalide`)
+			if (
+				Number.isInteger(fromNode) &&
+				Number.isInteger(toNode) &&
+				fromNode === toNode
+			)
+				errors.push(`Segment #${i + 1}: fromNode == toNode`)
+			if (s?.color != null && color == null)
+				errors.push(`Segment #${i + 1}: color invalide (attendu: #RRGGBB)`)
 
-    const arr = Array.isArray(obj) ? obj : (Array.isArray(obj?.route) ? obj.route : []);
-    if (!Array.isArray(obj) && obj != null && obj.route != null && !Array.isArray(obj.route)) {
-      return { ok: false, errors: ['Format attendu: {"route":[...], "annotations":[...]} ou [...]'], route: [], annotations: [] };
-    }
-    const rawAnnotations = Array.isArray(obj?.annotations) ? obj.annotations : [];
+			if (
+				Number.isInteger(wayId) &&
+				wayId > 0 &&
+				Number.isInteger(fromNode) &&
+				fromNode > 0 &&
+				Number.isInteger(toNode) &&
+				toNode > 0 &&
+				fromNode !== toNode
+			) {
+				const seg = { wayId, fromNode, toNode }
+				if (color) seg.color = color
+				out.push(seg)
+			}
+		})
 
-    const errors = [];
-    const out = [];
-    arr.forEach((s, i) => {
-      const wayId = Number(s?.wayId);
-      const fromNode = Number(s?.fromNode);
-      const toNode = Number(s?.toNode);
-      const color = this.normalizeSegmentColor(s?.color);
 
-      if (!Number.isInteger(wayId) || wayId <= 0) errors.push(`Segment #${i + 1}: wayId invalide`);
-      if (!Number.isInteger(fromNode) || fromNode <= 0) errors.push(`Segment #${i + 1}: fromNode invalide`);
-      if (!Number.isInteger(toNode) || toNode <= 0) errors.push(`Segment #${i + 1}: toNode invalide`);
-      if (Number.isInteger(fromNode) && Number.isInteger(toNode) && fromNode === toNode) errors.push(`Segment #${i + 1}: fromNode == toNode`);
-      if (s?.color != null && color == null) errors.push(`Segment #${i + 1}: color invalide (attendu: #RRGGBB)`);
+		if (!out.length && !annotations.length)
+			errors.push('Aucun segment ni annotation valide trouvé.')
+		return { ok: errors.length === 0, errors, route: out, annotations }
+	}
 
-      if (
-        Number.isInteger(wayId) && wayId > 0 &&
-        Number.isInteger(fromNode) && fromNode > 0 &&
-        Number.isInteger(toNode) && toNode > 0 &&
-        fromNode !== toNode
-      ) {
-        const seg = { wayId, fromNode, toNode };
-        if (color) seg.color = color;
-        out.push(seg);
-      }
-    });
+	normalizeSegmentColor(value) {
+		if (typeof value !== 'string') return null
+		const trimmed = value.trim()
+		return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null
+	}
 
-    const annotations = [];
-    rawAnnotations.forEach((annotation, i) => {
-      const text = typeof annotation?.text === "string" ? annotation.text.trim() : "";
-      const lat = Number(annotation?.lat);
-      const lon = Number(annotation?.lon);
-      const color = this.normalizeSegmentColor(annotation?.color);
-      const fontSize = this.normalizeAnnotationFontSize(annotation?.fontSize);
-      if (!text) {
-        errors.push(`Annotation #${i + 1}: text invalide`);
-        return;
-      }
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        errors.push(`Annotation #${i + 1}: lat/lon invalides`);
-        return;
-      }
-      if (annotation?.color != null && color == null) {
-        errors.push(`Annotation #${i + 1}: color invalide (attendu: #RRGGBB)`);
-        return;
-      }
-      if (annotation?.fontSize != null && fontSize == null) {
-        errors.push(`Annotation #${i + 1}: fontSize invalide (10-32)`);
-        return;
-      }
-      annotations.push({
-        id: typeof annotation?.id === "string" && annotation.id ? annotation.id : `ann-${i + 1}`,
-        text,
-        lat,
-        lon,
-        ...(color ? { color } : {}),
-        ...(fontSize ? { fontSize } : {}),
-      });
-    });
+	normalizeAnnotationFontSize(value) {
+		if (value == null || value === '') return null
+		const size = Number(value)
+		if (!Number.isFinite(size)) return null
+		const rounded = Math.round(size)
+		return rounded >= 10 && rounded <= 32 ? rounded : null
+	}
 
-    if (!out.length && !annotations.length) errors.push("Aucun segment ni annotation valide trouvé.");
-    return { ok: errors.length === 0, errors, route: out, annotations };
-  }
+	// ---------- Init logic ----------
+	async initWhenReady() {
+		if (this._initTried) return
+		this._initTried = true
 
-  normalizeSegmentColor(value) {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null;
-  }
+		const errBox = this.shadowRoot.querySelector('#err')
+		const ta = this.shadowRoot.querySelector('#ta')
 
-  normalizeAnnotationFontSize(value) {
-    if (value == null || value === "") return null;
-    const size = Number(value);
-    if (!Number.isFinite(size)) return null;
-    const rounded = Math.round(size);
-    return rounded >= 10 && rounded <= 32 ? rounded : null;
-  }
+		// Attendre que CodeMirror soit chargé (scripts globaux)
+		const ok = await this.waitForGlobal('CodeMirror', 2000)
+		if (!ok) {
+			errBox.style.display = 'block'
+			errBox.textContent =
+				"CodeMirror n'est pas disponible.\n" +
+				'Vérifie que les scripts CodeMirror sont bien chargés AVANT app.js dans index.html.\n' +
+				"Ex: <script src='.../codemirror.min.js'></script> puis <script type='module' src='app.js'></script>"
+			return
+		}
 
-  // ---------- Init logic ----------
-  async initWhenReady() {
-    if (this._initTried) return;
-    this._initTried = true;
+		// Init CodeMirror
+		this.cm = window.CodeMirror.fromTextArea(ta, {
+			mode: { name: 'javascript', json: true },
+			lineNumbers: true,
+			lineWrapping: true,
+			gutters: ['CodeMirror-lint-markers', 'CodeMirror-linenumbers'],
+			lint: true,
+			tabSize: 2,
+			indentUnit: 2,
+		})
 
-    const errBox = this.shadowRoot.querySelector("#err");
-    const ta = this.shadowRoot.querySelector("#ta");
+		// Valeur pending si setJSON a été appelé trop tôt
+		if (this._pendingValue != null) {
+			this.cm.setValue(this._pendingValue)
+			this.lastAppliedText = this._pendingValue
+			this.dirty = false
+			this._pendingValue = null
+		}
 
-    // Attendre que CodeMirror soit chargé (scripts globaux)
-    const ok = await this.waitForGlobal("CodeMirror", 2000);
-    if (!ok) {
-      errBox.style.display = "block";
-      errBox.textContent =
-        "CodeMirror n'est pas disponible.\n" +
-        "Vérifie que les scripts CodeMirror sont bien chargés AVANT app.js dans index.html.\n" +
-        "Ex: <script src='.../codemirror.min.js'></script> puis <script type='module' src='app.js'></script>";
-      return;
-    }
+		// Events
+		this.cm.on('change', () => this.onChange())
+		this.cm.on('blur', () => this.onBlur())
 
-    // Init CodeMirror
-    this.cm = window.CodeMirror.fromTextArea(ta, {
-      mode: { name: "javascript", json: true },
-      lineNumbers: true,
-      lineWrapping: true,
-      gutters: ["CodeMirror-lint-markers", "CodeMirror-linenumbers"],
-      lint: true,
-      tabSize: 2,
-      indentUnit: 2
-    });
+		// Refresh après montage (super important en flex + shadow)
+		this.safeRefresh()
 
-    // Valeur pending si setJSON a été appelé trop tôt
-    if (this._pendingValue != null) {
-      this.cm.setValue(this._pendingValue);
-      this.lastAppliedText = this._pendingValue;
-      this.dirty = false;
-      this._pendingValue = null;
-    }
+		// ResizeObserver -> refresh
+		this._ro = new ResizeObserver(() => this.safeRefresh())
+		this._ro.observe(this)
 
-    // Events
-    this.cm.on("change", () => this.onChange());
-    this.cm.on("blur", () => this.onBlur());
+		// hide error box
+		errBox.style.display = 'none'
+		errBox.textContent = ''
+	}
 
-    // Refresh après montage (super important en flex + shadow)
-    this.safeRefresh();
+	waitForGlobal(name, timeoutMs) {
+		return new Promise((resolve) => {
+			const start = performance.now()
+			const tick = () => {
+				if (window[name]) return resolve(true)
+				if (performance.now() - start > timeoutMs) return resolve(false)
+				requestAnimationFrame(tick)
+			}
+			tick()
+		})
+	}
 
-    // ResizeObserver -> refresh
-    this._ro = new ResizeObserver(() => this.safeRefresh());
-    this._ro.observe(this);
+	safeRefresh() {
+		if (!this.cm) return
+		// Plusieurs passes pour être sûr que le layout est stable
+		requestAnimationFrame(() => {
+			try {
+				this.cm.refresh()
+			} catch {}
+			setTimeout(() => {
+				try {
+					this.cm.refresh()
+				} catch {}
+			}, 0)
+		})
+	}
 
-    // hide error box
-    errBox.style.display = "none";
-    errBox.textContent = "";
-  }
+	// ---------- change/blur ----------
+	onChange() {
+		if (!this.cm) return
 
-  waitForGlobal(name, timeoutMs) {
-    return new Promise((resolve) => {
-      const start = performance.now();
-      const tick = () => {
-        if (window[name]) return resolve(true);
-        if (performance.now() - start > timeoutMs) return resolve(false);
-        requestAnimationFrame(tick);
-      };
-      tick();
-    });
-  }
+		const now = this.cm.getValue()
+		this.dirty = now !== this.lastAppliedText
 
-  safeRefresh() {
-    if (!this.cm) return;
-    // Plusieurs passes pour être sûr que le layout est stable
-    requestAnimationFrame(() => {
-      try { this.cm.refresh(); } catch {}
-      setTimeout(() => {
-        try { this.cm.refresh(); } catch {}
-      }, 0);
-    });
-  }
+		const parsed = this.getParsed()
+		const valid = parsed.ok
 
-  // ---------- change/blur ----------
-  onChange() {
-    if (!this.cm) return;
+		this.dispatchEvent(
+			new CustomEvent('dirty-change', {
+				detail: { dirty: this.dirty, valid },
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 
-    const now = this.cm.getValue();
-    this.dirty = now !== this.lastAppliedText;
+	onBlur() {
+		if (!this.cm || !this.dirty) return
+		const parsed = this.getParsed()
+		if (parsed.ok) {
+			this.dispatchEvent(
+				new CustomEvent('auto-apply', {
+					bubbles: true,
+					composed: true,
+				})
+			)
+			// le parent fera setJSON() => reset dirty
+		}
+	}
 
-    const parsed = this.getParsed();
-    const valid = parsed.ok;
-
-    this.dispatchEvent(new CustomEvent("dirty-change", {
-      detail: { dirty: this.dirty, valid },
-      bubbles: true,
-      composed: true
-    }));
-  }
-
-  onBlur() {
-    if (!this.cm || !this.dirty) return;
-    const parsed = this.getParsed();
-    if (parsed.ok) {
-      this.dispatchEvent(new CustomEvent("auto-apply", {
-        bubbles: true,
-        composed: true
-      }));
-      // le parent fera setJSON() => reset dirty
-    }
-  }
-
-  emitDirty({ valid }) {
-    this.dispatchEvent(new CustomEvent("dirty-change", {
-      detail: { dirty: this.dirty, valid: !!valid },
-      bubbles: true,
-      composed: true
-    }));
-  }
+	emitDirty({ valid }) {
+		this.dispatchEvent(
+			new CustomEvent('dirty-change', {
+				detail: { dirty: this.dirty, valid: !!valid },
+				bubbles: true,
+				composed: true,
+			})
+		)
+	}
 }
 
-customElements.define("json-editor", JsonEditor);
+customElements.define('json-editor', JsonEditor)

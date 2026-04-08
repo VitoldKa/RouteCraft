@@ -1,1 +1,1 @@
-import "./components/osm-route-editor.js";
+import './components/osm-route-editor.js'
