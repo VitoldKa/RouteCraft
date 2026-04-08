@@ -78,7 +78,6 @@ class MapToolbox extends HTMLElement {
           pointer-events:none;
         }
         .toolColor {
-          min-width:148px;
           display:flex;
           flex-direction:column;
           gap:8px;
