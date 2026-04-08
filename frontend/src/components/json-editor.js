@@ -92,6 +92,52 @@ class JsonEditor extends HTMLElement {
 
 	getParsed() {
 		const txt = (this.cm ? this.cm.getValue() : '').trim()
+		if (!txt)
+			return {
+				ok: false,
+				errors: ['Champ JSON vide.'],
+				route: [],
+				annotations: [],
+			}
+
+		let obj
+		try {
+			obj = JSON.parse(txt)
+		} catch {
+			return {
+				ok: false,
+				errors: ['JSON invalide (syntaxe).'],
+				route: [],
+				annotations: [],
+			}
+		}
+
+		const arr = Array.isArray(obj)
+			? obj
+			: Array.isArray(obj?.route)
+				? obj.route
+				: []
+		if (
+			!Array.isArray(obj) &&
+			obj != null &&
+			obj.route != null &&
+			!Array.isArray(obj.route)
+		) {
+			return {
+				ok: false,
+				errors: [
+					'Format attendu: {"route":[...], "annotations":[...]} ou [...]',
+				],
+				route: [],
+				annotations: [],
+			}
+		}
+		const rawAnnotations = Array.isArray(obj?.annotations)
+			? obj.annotations
+			: []
+
+		const errors = []
+		const out = []
 		arr.forEach((s, i) => {
 			const wayId = Number(s?.wayId)
 			const fromNode = Number(s?.fromNode)
@@ -128,6 +174,42 @@ class JsonEditor extends HTMLElement {
 			}
 		})
 
+		const annotations = []
+		rawAnnotations.forEach((annotation, i) => {
+			const text =
+				typeof annotation?.text === 'string' ? annotation.text.trim() : ''
+			const lat = Number(annotation?.lat)
+			const lon = Number(annotation?.lon)
+			const color = this.normalizeSegmentColor(annotation?.color)
+			const fontSize = this.normalizeAnnotationFontSize(annotation?.fontSize)
+			if (!text) {
+				errors.push(`Annotation #${i + 1}: text invalide`)
+				return
+			}
+			if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+				errors.push(`Annotation #${i + 1}: lat/lon invalides`)
+				return
+			}
+			if (annotation?.color != null && color == null) {
+				errors.push(`Annotation #${i + 1}: color invalide (attendu: #RRGGBB)`)
+				return
+			}
+			if (annotation?.fontSize != null && fontSize == null) {
+				errors.push(`Annotation #${i + 1}: fontSize invalide (10-32)`)
+				return
+			}
+			annotations.push({
+				id:
+					typeof annotation?.id === 'string' && annotation.id
+						? annotation.id
+						: `ann-${i + 1}`,
+				text,
+				lat,
+				lon,
+				...(color ? { color } : {}),
+				...(fontSize ? { fontSize } : {}),
+			})
+		})
 
 		if (!out.length && !annotations.length)
 			errors.push('Aucun segment ni annotation valide trouvé.')
