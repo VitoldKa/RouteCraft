@@ -439,17 +439,37 @@ static std::string serialize_way_json(
 
 static std::string serialize_nodes_blob(const std::vector<NodeCoord> &nodes, int precision)
 {
+    (void)precision;
     std::string s;
     s.reserve(nodes.size() * 64);
+
+    auto append_coord_e7 = [&](std::int32_t value)
+    {
+        std::int64_t raw = static_cast<std::int64_t>(value);
+        if (raw < 0)
+        {
+            s.push_back('-');
+            raw = -raw;
+        }
+
+        const std::int64_t whole = raw / 10000000;
+        const std::int64_t frac = raw % 10000000;
+        s += std::to_string(whole);
+        s.push_back('.');
+
+        char frac_buf[8];
+        std::snprintf(frac_buf, sizeof(frac_buf), "%07lld", static_cast<long long>(frac));
+        s += frac_buf;
+    };
 
     for (const auto &n : nodes)
     {
         s += "{\"id\":";
         s += std::to_string(n.id);
         s += ",\"lat\":";
-        s += std::to_string(n.lat_e7);
+        append_coord_e7(n.lat_e7);
         s += ",\"lon\":";
-        s += std::to_string(n.lon_e7);
+        append_coord_e7(n.lon_e7);
         s += "}\n";
     }
 
