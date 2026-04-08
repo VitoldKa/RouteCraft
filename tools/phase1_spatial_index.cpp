@@ -17,6 +17,7 @@ WINDOWS (MSYS2):
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdint>
@@ -43,6 +44,8 @@ WINDOWS (MSYS2):
 #include <osmium/tags/taglist.hpp>
 #include <osmium/visitor.hpp>
 
+#include "spatial_cache_metadata.hpp"
+
 namespace fs = std::filesystem;
 
 struct Config
@@ -56,6 +59,82 @@ struct Config
     std::size_t worker_threads = 0;     // 0 => auto
     std::size_t queue_capacity = 20000; // borné pour ne pas exploser la RAM
 };
+
+class HelpRequested : public std::runtime_error
+{
+public:
+    using std::runtime_error::runtime_error;
+};
+
+static std::string cli_program_name(const char *argv0)
+{
+    const fs::path path = argv0 ? fs::path(argv0) : fs::path("phase1_spatial_index");
+    const std::string name = path.filename().string();
+    return name.empty() ? "phase1_spatial_index" : name;
+}
+
+static std::string build_help_text(const std::string &program_name)
+{
+    std::ostringstream out;
+    out << "Build the intermediate spatial cache from an OSM extract.\n"
+        << "\n"
+        << "This phase reads OSM nodes and ways, keeps transit-relevant ways,\n"
+        << "and writes sharded intermediate files used by phase 2.\n"
+        << "\n"
+        << "Usage:\n"
+        << "  " << program_name << " <input.osm.pbf|input.osm.bz2> [options]\n"
+        << "\n"
+        << "Required argument:\n"
+        << "  <input.osm.pbf|input.osm.bz2>\n"
+        << "      Source OpenStreetMap extract to preprocess.\n"
+        << "\n"
+        << "Options:\n"
+        << "  --out-dir DIR\n"
+        << "      Output directory for intermediate tiles and metadata.\n"
+        << "      Default: tmp_spatial\n"
+        << "\n"
+        << "  --bbox-size FLOAT\n"
+        << "      Size in degrees for bbox index cells.\n"
+        << "      Default: 0.01\n"
+        << "\n"
+        << "  --tile-size FLOAT\n"
+        << "      Size in degrees for content tiles.\n"
+        << "      Default: 0.05\n"
+        << "\n"
+        << "  --precision N\n"
+        << "      Decimal precision used in generated metadata.\n"
+        << "      Default: 5\n"
+        << "\n"
+        << "  --flush-every N\n"
+        << "      Flush buffered output after every N written ways.\n"
+        << "      Default: 20000\n"
+        << "\n"
+        << "  --threads N\n"
+        << "      Number of worker threads.\n"
+        << "      Use 0 to auto-select based on available CPU cores.\n"
+        << "      Default: 0\n"
+        << "\n"
+        << "  --queue-capacity N\n"
+        << "      Maximum number of pending work items in each queue.\n"
+        << "      Default: 20000\n"
+        << "\n"
+        << "  -h, --help\n"
+        << "      Show this help message.\n"
+        << "\n"
+        << "Outputs:\n"
+        << "  <out-dir>/bbox_index/\n"
+        << "      Sharded bbox-to-way reference files.\n"
+        << "  <out-dir>/content_tiles/\n"
+        << "      Sharded way and node payload files.\n"
+        << "  <out-dir>/phase1_config.json\n"
+        << "      Metadata describing the build inputs and parameters.\n"
+        << "\n"
+        << "Examples:\n"
+        << "  " << program_name << " switzerland-latest.osm.pbf\n"
+        << "  " << program_name
+        << " europe-latest.osm.pbf --out-dir tmp_spatial --threads 8 --flush-every 50000\n";
+    return out.str();
+}
 
 static bool value_in_list(const char *v, std::initializer_list<const char *> allowed)
 {
@@ -502,7 +581,7 @@ private:
 
             std::ofstream out(path, std::ios::binary | std::ios::app);
             if (!out)
-                throw std::runtime_error("Impossible d'ouvrir " + path.string());
+                throw std::runtime_error("Unable to open output file: " + path.string());
 
             out.write(buf.a.data(), static_cast<std::streamsize>(buf.a.size()));
         }
@@ -528,14 +607,14 @@ private:
             {
                 std::ofstream out(ways_path, std::ios::binary | std::ios::app);
                 if (!out)
-                    throw std::runtime_error("Impossible d'ouvrir " + ways_path.string());
+                    throw std::runtime_error("Unable to open output file: " + ways_path.string());
                 out.write(buf.a.data(), static_cast<std::streamsize>(buf.a.size()));
             }
 
             {
                 std::ofstream out(nodes_path, std::ios::binary | std::ios::app);
                 if (!out)
-                    throw std::runtime_error("Impossible d'ouvrir " + nodes_path.string());
+                    throw std::runtime_error("Unable to open output file: " + nodes_path.string());
                 out.write(buf.b.data(), static_cast<std::streamsize>(buf.b.size()));
             }
         }
@@ -625,7 +704,7 @@ public:
 
         if (!work_queue_.push(std::move(item)))
         {
-            throw std::runtime_error("Queue worker fermee pendant la production.");
+            throw std::runtime_error("Worker queue was closed while producing work items.");
         }
     }
 
@@ -674,6 +753,19 @@ static WorkerResult process_work_item(const Config &cfg, WorkItem &&item)
     }
 
     return out;
+}
+
+static void write_filter_summary(std::ostream &out)
+{
+    out << "  \"filterSummary\": {\n"
+        << "    \"highwayValues\": [\n"
+        << "      \"pedestrian\", \"residential\", \"living_street\", \"tertiary\",\n"
+        << "      \"secondary\", \"primary\", \"unclassified\", \"service\",\n"
+        << "      \"path\", \"track\"\n"
+        << "    ],\n"
+        << "    \"busTags\": [\"busway=*\", \"bus=yes\", \"bus=designated\", \"lanes:bus=*\"],\n"
+        << "    \"railwayValues\": [\"tram\", \"light_rail\"]\n"
+        << "  },\n";
 }
 
 static void worker_loop(
@@ -735,8 +827,8 @@ static void writer_loop(
             {
                 writer.flush();
                 const auto refs = total_bbox_refs_written.load(std::memory_order_relaxed);
-                std::cerr << "ways ecrits: " << written_results
-                          << ", moyenne bbox/way: "
+                std::cerr << "ways written: " << written_results
+                          << ", average bbox refs per way: "
                           << (written_results
                                   ? static_cast<double>(refs) / static_cast<double>(written_results)
                                   : 0.0)
@@ -758,17 +850,9 @@ static void writer_loop(
 
 static Config parse_args(int argc, char **argv)
 {
-    if (argc < 2)
-    {
-        throw std::runtime_error(
-            "Usage: phase1_spatial_index_mt <input.osm.pbf|input.osm.bz2> "
-            "[--out-dir DIR] [--bbox-size 0.01] [--tile-size 0.05] "
-            "[--precision 5] [--flush-every 20000] "
-            "[--threads N] [--queue-capacity N]");
-    }
-
     Config cfg;
     cfg.input_file = argv[1];
+    const std::string program_name = cli_program_name(argv[0]);
 
     for (int i = 2; i < argc; ++i)
     {
@@ -777,11 +861,13 @@ static Config parse_args(int argc, char **argv)
         auto need = [&](const char *name) -> std::string
         {
             if (i + 1 >= argc)
-                throw std::runtime_error(std::string("Valeur manquante pour ") + name);
+                throw std::runtime_error(std::string("Missing value for option ") + name);
             return argv[++i];
         };
 
-        if (arg == "--out-dir")
+        if (arg == "-h" || arg == "--help")
+            throw HelpRequested(build_help_text(program_name));
+        else if (arg == "--out-dir")
             cfg.out_dir = need("--out-dir");
         else if (arg == "--bbox-size")
             cfg.bbox_size = std::stod(need("--bbox-size"));
@@ -796,11 +882,11 @@ static Config parse_args(int argc, char **argv)
         else if (arg == "--queue-capacity")
             cfg.queue_capacity = static_cast<std::size_t>(std::stoull(need("--queue-capacity")));
         else
-            throw std::runtime_error("Argument inconnu: " + arg);
+            throw std::runtime_error("Unknown argument: " + arg);
     }
 
     if (cfg.bbox_size <= 0.0 || cfg.tile_size <= 0.0)
-        throw std::runtime_error("--bbox-size et --tile-size doivent etre > 0");
+        throw std::runtime_error("--bbox-size and --tile-size must be greater than 0");
 
     if (cfg.worker_threads == 0)
     {
@@ -809,7 +895,7 @@ static Config parse_args(int argc, char **argv)
     }
 
     if (cfg.queue_capacity == 0)
-        throw std::runtime_error("--queue-capacity doit etre > 0");
+        throw std::runtime_error("--queue-capacity must be greater than 0");
 
     return cfg;
 }
@@ -818,7 +904,24 @@ int main(int argc, char **argv)
 {
     try
     {
+        if (argc < 2)
+        {
+            std::cerr << build_help_text(cli_program_name(argv[0]));
+            return 1;
+        }
+
+        if (std::string_view(argv[1]) == "-h" || std::string_view(argv[1]) == "--help")
+        {
+            std::cout << build_help_text(cli_program_name(argv[0]));
+            return 0;
+        }
+
         const Config cfg = parse_args(argc, argv);
+        const spatial_metadata::InputMetadata input_meta =
+            spatial_metadata::collect_input_metadata(cfg.input_file);
+        const auto started_clock = std::chrono::steady_clock::now();
+        const std::uint64_t started_at_ms = spatial_metadata::unix_time_ms();
+        const std::string started_at_iso = spatial_metadata::iso_utc_now();
 
         std::atomic<std::uint64_t> ways_seen{0};
         std::atomic<std::uint64_t> ways_matched{0};
@@ -828,11 +931,13 @@ int main(int argc, char **argv)
         BlockingQueue<WorkItem> work_queue(cfg.queue_capacity);
         BlockingQueue<WorkerResult> result_queue(cfg.queue_capacity);
 
-        std::cerr << "Lecture: " << cfg.input_file << "\n";
+        std::cerr << "Reading input: " << cfg.input_file << "\n";
+        std::cerr << "Output directory: " << cfg.out_dir << "\n";
         std::cerr << "bbox-size=" << cfg.bbox_size
                   << " | tile-size=" << cfg.tile_size
-                  << " | worker_threads=" << cfg.worker_threads
-                  << " | queue_capacity=" << cfg.queue_capacity << "\n";
+                  << " | threads=" << cfg.worker_threads
+                  << " | queue-capacity=" << cfg.queue_capacity
+                  << " | flush-every=" << cfg.flush_every << "\n";
 
         std::thread writer_thread(
             writer_loop,
@@ -878,15 +983,65 @@ int main(int argc, char **argv)
         result_queue.close();
         writer_thread.join();
 
-        std::cerr << "Phase 1 terminee.\n";
-        std::cerr << "- ways lus: " << ways_seen.load() << "\n";
-        std::cerr << "- ways retenus: " << ways_matched.load() << "\n";
-        std::cerr << "- bbox refs ecrits: " << total_bbox_refs_written.load() << "\n";
+        std::cerr << "Phase 1 complete.\n";
+        std::cerr << "- ways scanned: " << ways_seen.load() << "\n";
+        std::cerr << "- ways matched: " << ways_matched.load() << "\n";
+        std::cerr << "- bbox refs written: " << total_bbox_refs_written.load() << "\n";
+
+        const auto finished_clock = std::chrono::steady_clock::now();
+        const std::uint64_t finished_at_ms = spatial_metadata::unix_time_ms();
+        const std::string finished_at_iso = spatial_metadata::iso_utc_now();
+
+        spatial_metadata::GenerationMetadata generation_meta;
+        generation_meta.started_at_ms = started_at_ms;
+        generation_meta.started_at_iso = started_at_iso;
+        generation_meta.finished_at_ms = finished_at_ms;
+        generation_meta.finished_at_iso = finished_at_iso;
+        generation_meta.duration_ms = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                finished_clock - started_clock)
+                .count());
+        generation_meta.ways_seen = ways_seen.load();
+        generation_meta.ways_matched = ways_matched.load();
+        generation_meta.bbox_refs_written = total_bbox_refs_written.load();
+        generation_meta.phase_command = spatial_metadata::join_command_line(argc, argv);
+        generation_meta.git_commit = spatial_metadata::git_commit_from_cwd();
+
+        const spatial_metadata::OutputMetadata output_meta =
+            spatial_metadata::collect_output_metadata(cfg.out_dir);
+
+        spatial_metadata::MetadataConfig metadata_cfg;
+        metadata_cfg.generator = "phase1_spatial_index";
+        metadata_cfg.input_file = cfg.input_file;
+        metadata_cfg.out_dir = cfg.out_dir;
+        metadata_cfg.metadata_file_name = "phase1_config.json";
+        metadata_cfg.command_field_name = "phase1Command";
+        metadata_cfg.bbox_size = cfg.bbox_size;
+        metadata_cfg.tile_size = cfg.tile_size;
+        metadata_cfg.precision = cfg.precision;
+        metadata_cfg.flush_every = cfg.flush_every;
+        metadata_cfg.worker_threads = cfg.worker_threads;
+        metadata_cfg.queue_capacity = cfg.queue_capacity;
+
+        spatial_metadata::write_metadata_file(
+            metadata_cfg,
+            input_meta,
+            output_meta,
+            generation_meta,
+            [](std::ostream &out)
+            {
+                write_filter_summary(out);
+            });
+        return 0;
+    }
+    catch (const HelpRequested &help)
+    {
+        std::cout << help.what();
         return 0;
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Erreur: " << e.what() << "\n";
+        std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
 }

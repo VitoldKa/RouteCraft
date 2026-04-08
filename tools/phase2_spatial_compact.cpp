@@ -4,10 +4,12 @@ g++ -O3 -std=c++17 phase2_spatial_compact_mt.cpp -pthread -o phase2_spatial_comp
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cctype>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -107,6 +109,13 @@ struct Result
     JobKind kind = JobKind::BboxIndex;
     TileId id;
     std::string json;
+};
+
+struct RunStats
+{
+    std::uint64_t total_jobs = 0;
+    std::uint64_t bbox_jobs = 0;
+    std::uint64_t content_jobs = 0;
 };
 
 template <typename T>
@@ -219,6 +228,132 @@ static std::string json_escape(std::string_view s)
         }
     }
     return out;
+}
+
+static std::uint64_t unix_time_ms()
+{
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
+static std::string trim_ascii(std::string s)
+{
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+        s.pop_back();
+
+    std::size_t start = 0;
+    while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start])))
+        ++start;
+
+    return s.substr(start);
+}
+
+static std::string iso_utc_from_time_t(std::time_t value)
+{
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &value);
+#else
+    gmtime_r(&value, &tm);
+#endif
+
+    char buf[32];
+    if (std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm) == 0)
+        throw std::runtime_error("Impossible de formatter le timestamp UTC");
+
+    return buf;
+}
+
+static std::string iso_utc_now()
+{
+    return iso_utc_from_time_t(std::time(nullptr));
+}
+
+static std::string shell_quote(const std::string &value)
+{
+    std::string out = "'";
+    for (char c : value)
+    {
+        if (c == '\'')
+            out += "'\\''";
+        else
+            out.push_back(c);
+    }
+    out.push_back('\'');
+    return out;
+}
+
+static std::string join_command_line(int argc, char **argv)
+{
+    std::string out;
+    for (int i = 0; i < argc; ++i)
+    {
+        if (i)
+            out.push_back(' ');
+        out += shell_quote(argv[i] ? argv[i] : "");
+    }
+    return out;
+}
+
+static std::string capture_command_output(const std::string &command)
+{
+#ifdef _WIN32
+    return "";
+#else
+    FILE *pipe = popen(command.c_str(), "r");
+    if (!pipe)
+        return "";
+
+    std::string out;
+    char buf[512];
+    while (std::fgets(buf, sizeof(buf), pipe))
+        out += buf;
+
+    const int rc = pclose(pipe);
+    if (rc != 0)
+        return "";
+
+    return trim_ascii(out);
+#endif
+}
+
+static std::string git_commit_from_cwd()
+{
+#ifdef _WIN32
+    return "";
+#else
+    return capture_command_output("git rev-parse HEAD 2>/dev/null");
+#endif
+}
+
+static RunStats collect_compacted_output_stats(const Config &cfg)
+{
+    RunStats stats;
+
+    const fs::path bbox_root = fs::path(cfg.out_dir) / "bbox-index";
+    if (fs::exists(bbox_root))
+    {
+        for (const auto &entry : fs::recursive_directory_iterator(bbox_root))
+        {
+            if (entry.is_regular_file() && ends_with(entry.path().string(), ".json"))
+                ++stats.bbox_jobs;
+        }
+    }
+
+    const fs::path content_root = fs::path(cfg.out_dir) / "content-tiles";
+    if (fs::exists(content_root))
+    {
+        for (const auto &entry : fs::recursive_directory_iterator(content_root))
+        {
+            if (entry.is_regular_file() && ends_with(entry.path().string(), ".json"))
+                ++stats.content_jobs;
+        }
+    }
+
+    stats.total_jobs = stats.bbox_jobs + stats.content_jobs;
+    return stats;
 }
 
 static std::optional<std::uint64_t> extract_uint_field(std::string_view line, std::string_view field)
@@ -533,6 +668,75 @@ static void writer_loop(const Config &cfg, BlockingQueue<Result> &result_queue)
     flush_ready();
 }
 
+static bool copy_phase1_config_if_present(const Config &cfg)
+{
+    const fs::path source = fs::path(cfg.in_dir) / "phase1_config.json";
+    if (!fs::exists(source))
+        return false;
+
+    const fs::path destination = fs::path(cfg.out_dir) / "phase1_config.json";
+    fs::copy_file(source, destination, fs::copy_options::overwrite_existing);
+    return true;
+}
+
+static void write_phase2_metadata(
+    const Config &cfg,
+    const RunStats &stats,
+    bool phase1_config_copied,
+    const std::string &phase2_command,
+    const std::string &git_commit,
+    std::uint64_t started_at_ms,
+    const std::string &started_at_iso,
+    std::uint64_t finished_at_ms,
+    const std::string &finished_at_iso,
+    std::uint64_t duration_ms)
+{
+    const RunStats compacted_output_stats = collect_compacted_output_stats(cfg);
+
+    const fs::path path = fs::path(cfg.out_dir) / "phase2_config.json";
+    const fs::path tmp_path = path.string() + ".tmp";
+
+    std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+    if (!out)
+        throw std::runtime_error("Impossible d'ouvrir " + tmp_path.string());
+
+    out << "{\n"
+        << "  \"generator\": \"phase2_spatial_compact\",\n"
+        << "  \"gitCommit\": \"" << json_escape(git_commit) << "\",\n"
+        << "  \"phase2Command\": \"" << json_escape(phase2_command) << "\",\n"
+        << "  \"writtenAt\": " << finished_at_ms << ",\n"
+        << "  \"writtenAtIso\": \"" << json_escape(finished_at_iso) << "\",\n"
+        << "  \"generationStartedAt\": " << started_at_ms << ",\n"
+        << "  \"generationStartedAtIso\": \"" << json_escape(started_at_iso) << "\",\n"
+        << "  \"generationFinishedAt\": " << finished_at_ms << ",\n"
+        << "  \"generationFinishedAtIso\": \"" << json_escape(finished_at_iso) << "\",\n"
+        << "  \"generationDurationMs\": " << duration_ms << ",\n"
+        << "  \"inDir\": \"" << json_escape(cfg.in_dir) << "\",\n"
+        << "  \"outDir\": \"" << json_escape(cfg.out_dir) << "\",\n"
+        << "  \"createdAt\": " << cfg.created_at << ",\n"
+        << "  \"fetchedAt\": " << cfg.fetched_at << ",\n"
+        << "  \"bboxSize\": " << fmt(cfg.bbox_size, cfg.precision) << ",\n"
+        << "  \"tileSize\": " << fmt(cfg.tile_size, cfg.precision) << ",\n"
+        << "  \"precision\": " << cfg.precision << ",\n"
+        << "  \"workerThreads\": " << cfg.worker_threads << ",\n"
+        << "  \"queueCapacity\": " << cfg.queue_capacity << ",\n"
+        << "  \"phase1ConfigCopied\": " << (phase1_config_copied ? "true" : "false") << ",\n"
+        << "  \"stats\": {\n"
+        << "    \"jobCount\": " << stats.total_jobs << ",\n"
+        << "    \"bboxJobCount\": " << stats.bbox_jobs << ",\n"
+        << "    \"contentJobCount\": " << stats.content_jobs << ",\n"
+        << "    \"bboxTileCount\": " << compacted_output_stats.bbox_jobs << ",\n"
+        << "    \"contentTileCount\": " << compacted_output_stats.content_jobs << "\n"
+        << "  }\n"
+        << "}\n";
+
+    out.close();
+    if (!out)
+        throw std::runtime_error("Erreur d'ecriture " + tmp_path.string());
+
+    fs::rename(tmp_path, path);
+}
+
 static Config parse_args(int argc, char **argv)
 {
     Config cfg;
@@ -593,6 +797,11 @@ int main(int argc, char **argv)
     try
     {
         const Config cfg = parse_args(argc, argv);
+        const auto started_clock = std::chrono::steady_clock::now();
+        const std::uint64_t started_at_ms = unix_time_ms();
+        const std::string started_at_iso = iso_utc_now();
+        const std::string phase2_command = join_command_line(argc, argv);
+        const std::string git_commit = git_commit_from_cwd();
 
         if (!fs::exists(cfg.in_dir))
             throw std::runtime_error("Dossier introuvable: " + cfg.in_dir);
@@ -604,6 +813,7 @@ int main(int argc, char **argv)
 
         std::vector<Job> jobs;
         jobs.reserve(200000);
+        RunStats run_stats;
 
         std::uint64_t seq = 0;
 
@@ -631,6 +841,7 @@ int main(int argc, char **argv)
                 job.kind = JobKind::BboxIndex;
                 job.bbox_job = BboxJob{*bbox_id, path};
                 jobs.push_back(std::move(job));
+                ++run_stats.bbox_jobs;
             }
         }
 
@@ -683,8 +894,11 @@ int main(int argc, char **argv)
                 job.kind = JobKind::ContentTile;
                 job.content_job = ContentJob{tile, it->second.ways, it->second.nodes};
                 jobs.push_back(std::move(job));
+                ++run_stats.content_jobs;
             }
         }
+
+        run_stats.total_jobs = static_cast<std::uint64_t>(jobs.size());
 
         std::cerr << "Jobs total: " << jobs.size()
                   << " | worker_threads=" << cfg.worker_threads
@@ -721,6 +935,27 @@ int main(int argc, char **argv)
 
         result_queue.close();
         writer.join();
+
+        const bool phase1_config_copied = copy_phase1_config_if_present(cfg);
+        const auto finished_clock = std::chrono::steady_clock::now();
+        const std::uint64_t finished_at_ms = unix_time_ms();
+        const std::string finished_at_iso = iso_utc_now();
+        const std::uint64_t duration_ms = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                finished_clock - started_clock)
+                .count());
+
+        write_phase2_metadata(
+            cfg,
+            run_stats,
+            phase1_config_copied,
+            phase2_command,
+            git_commit,
+            started_at_ms,
+            started_at_iso,
+            finished_at_ms,
+            finished_at_iso,
+            duration_ms);
 
         std::cerr << "Phase 2 terminee.\n";
         std::cerr << "Sortie: " << cfg.out_dir << "\n";
