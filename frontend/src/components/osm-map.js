@@ -598,6 +598,10 @@ class OSMMap extends HTMLElement {
 					row = null
 				}
 
+				if (row && this.shouldRefreshBBoxRow(row)) {
+					row = null
+				}
+
 				if (!row) {
 					row = await this.fetchAndPersistBBoxIndex(key)
 				}
@@ -609,7 +613,8 @@ class OSMMap extends HTMLElement {
 				}
 
 				for (const tileKey of row.contentTiles || []) {
-					contentTilesToFetch.add(tileKey)
+					const normalizedTileKey = this.normalizeContentTileRef(tileKey)
+					if (normalizedTileKey) contentTilesToFetch.add(normalizedTileKey)
 				}
 			}
 
@@ -635,6 +640,13 @@ class OSMMap extends HTMLElement {
 					missingWayIds = wayIds
 				}
 			}
+
+			this.spatialLog('debug', 'Viewport load summary', {
+				bboxCount: bboxKeys.length,
+				wayCount: wayIds.length,
+				missingWayCount: missingWayIds.length,
+				contentTileCount: contentTilesToFetch.size,
+			})
 
 			// 3) Si des ways manquent, charger les content tiles associées
 			if (missingWayIds.length && contentTilesToFetch.size) {
@@ -698,7 +710,10 @@ class OSMMap extends HTMLElement {
 			for (const wayId of missingWayIds) {
 				const set = this.wayToContentTiles.get(wayId)
 				if (!set) continue
-				for (const tileKey of set) tileKeys.add(tileKey)
+				for (const tileKey of set) {
+					const normalizedTileKey = this.normalizeContentTileRef(tileKey)
+					if (normalizedTileKey) tileKeys.add(normalizedTileKey)
+				}
 			}
 
 			for (const tileKey of tileKeys) {
@@ -728,10 +743,21 @@ class OSMMap extends HTMLElement {
 	async fetchAndPersistBBoxIndex(key) {
 		try {
 			const data = await this.fetchBBoxIndex(key)
+			const rawContentTiles = Array.isArray(data.contentTiles) ? data.contentTiles : []
+			const { normalized: normalizedContentTiles, invalidCount } =
+				this.normalizeContentTileRefs(rawContentTiles)
+
+			if (invalidCount > 0) {
+				this.spatialLog('warn', 'Dropped invalid bbox content tile refs', {
+					key,
+					invalidCount,
+					sample: rawContentTiles.slice(0, 3),
+				})
+			}
 			const row = {
 				key,
 				wayIds: Array.isArray(data.wayIds) ? data.wayIds : [],
-				contentTiles: Array.isArray(data.contentTiles) ? data.contentTiles : [],
+				contentTiles: normalizedContentTiles,
 				fetchedAt: data.fetchedAt || Date.now(),
 				missing: false,
 			}
@@ -778,12 +804,31 @@ class OSMMap extends HTMLElement {
 				return row
 			}
 
+			this.spatialLog('warn', 'BBox index fetch failed', {
+				key,
+				error: e?.message || String(e),
+			})
 			return null
 		}
 	}
 
 	async fetchAndPersistContentTile(tileKey) {
-		const tile = await this.fetchContentTile(tileKey)
+		const normalizedTileKey = this.normalizeContentTileRef(tileKey)
+		if (!normalizedTileKey) {
+			this.spatialLog('warn', 'Skipped invalid content tile ref', { tileKey })
+			return
+		}
+
+		let tile
+		try {
+			tile = await this.fetchContentTile(normalizedTileKey)
+		} catch (e) {
+			this.spatialLog('warn', 'Content tile fetch failed', {
+				tileKey: normalizedTileKey,
+				error: e?.message || String(e),
+			})
+			throw e
+		}
 
 		const ways = Array.isArray(tile.ways) ? tile.ways : []
 		const nodes = Array.isArray(tile.nodes) ? tile.nodes : []
@@ -797,7 +842,7 @@ class OSMMap extends HTMLElement {
 				set = new Set()
 				this.wayToContentTiles.set(Number(w.id), set)
 			}
-			set.add(tileKey)
+			set.add(normalizedTileKey)
 		}
 
 		try {
@@ -831,13 +876,21 @@ class OSMMap extends HTMLElement {
 	}
 
 	async fetchBBoxIndex(key) {
-		const file = this.spatialFilenameFromKey(key)
-		return this.fetchStaticJSON(`${this.CACHE_BASE_URL}/bbox-index/${file}`)
+		const file = this.spatialCachePathFromKey(
+			key,
+			this.BBOX_INDEX_SIZE,
+			'bbox-index'
+		)
+		return this.fetchStaticJSON(`${this.CACHE_BASE_URL}/${file}`)
 	}
 
-	async fetchContentTile(key) {
-		const file = this.spatialFilenameFromKey(key)
-		return this.fetchStaticJSON(`${this.CACHE_BASE_URL}/content-tiles/${file}`)
+	async fetchContentTile(tileRef) {
+		const file = this.spatialCachePathFromTileRef(
+			tileRef,
+			this.CONTENT_TILE_SIZE,
+			'content-tiles'
+		)
+		return this.fetchStaticJSON(`${this.CACHE_BASE_URL}/${file}`)
 	}
 
 	// ---------- Cache ingest ----------
@@ -943,6 +996,117 @@ class OSMMap extends HTMLElement {
 
 	spatialFilenameFromKey(key) {
 		return key.replaceAll(',', '__') + '.json'
+	}
+
+	normalizeContentTileRefs(tileRefs) {
+		const normalized = []
+		let invalidCount = 0
+
+		for (const tileRef of tileRefs || []) {
+			const normalizedTileKey = this.normalizeContentTileRef(tileRef)
+			if (normalizedTileKey) normalized.push(normalizedTileKey)
+			else invalidCount++
+		}
+
+		return { normalized, invalidCount }
+	}
+
+	shouldRefreshBBoxRow(row) {
+		if (!row) return true
+
+		const { normalized, invalidCount } = this.normalizeContentTileRefs(
+			row.contentTiles
+		)
+
+		if (invalidCount > 0) return true
+		if ((row.wayIds || []).length > 0 && normalized.length === 0) return true
+
+		return false
+	}
+
+	isSpatialKey(key) {
+		const parts = String(key)
+			.split(',')
+			.map((part) => Number(part))
+		return parts.length === 4 && parts.every((value) => Number.isFinite(value))
+	}
+
+	spatialIndicesFromKey(key, size) {
+		const parts = String(key)
+			.split(',')
+			.map((part) => Number(part))
+
+		if (parts.length < 2 || parts.some((value) => !Number.isFinite(value))) {
+			throw new Error(`Invalid spatial key: ${key}`)
+		}
+
+		const [south, west] = parts
+		const epsilon = size / 1000
+		return {
+			yi: Math.floor((south + epsilon) / size),
+			xi: Math.floor((west + epsilon) / size),
+		}
+	}
+
+	deterministicMix64(yi, xi) {
+		const toU64 = (value) => BigInt.asUintN(64, BigInt(value))
+		const mix = (value) => BigInt.asUintN(64, value)
+
+		let x = mix(toU64(yi) * 0x9e3779b185ebca87n)
+		x = mix(x ^ (toU64(xi) + 0xc2b2ae3d27d4eb4fn + (x << 6n) + (x >> 2n)))
+		x = mix(x ^ (x >> 33n))
+		x = mix(x * 0xff51afd7ed558ccdn)
+		x = mix(x ^ (x >> 33n))
+		x = mix(x * 0xc4ceb9fe1a85ec53n)
+		x = mix(x ^ (x >> 33n))
+		return x
+	}
+
+	deterministicShardedRelativePath(yi, xi, suffix) {
+		const hash = this.deterministicMix64(yi, xi)
+		const shard1 = Number((hash >> 8n) & 0xffn)
+		const shard2 = Number(hash & 0xffn)
+		return `${shard1}/${shard2}/${yi}_${xi}${suffix}`
+	}
+
+	spatialCachePathFromKey(key, size, rootDir) {
+		const { yi, xi } = this.spatialIndicesFromKey(key, size)
+		return `${rootDir}/${this.deterministicShardedRelativePath(yi, xi, '.json')}`
+	}
+
+	normalizeContentTileRef(tileRef) {
+		if (!tileRef) return null
+		if (typeof tileRef === 'string') {
+			const trimmed = tileRef.trim()
+			return this.isSpatialKey(trimmed) ? trimmed : null
+		}
+
+		const yi = Number(tileRef.yi)
+		const xi = Number(tileRef.xi)
+		if (!Number.isInteger(yi) || !Number.isInteger(xi)) return null
+
+		const south = yi * this.CONTENT_TILE_SIZE
+		const west = xi * this.CONTENT_TILE_SIZE
+		const north = south + this.CONTENT_TILE_SIZE
+		const east = west + this.CONTENT_TILE_SIZE
+		return this.spatialKey(south, west, north, east)
+	}
+
+	spatialCachePathFromTileRef(tileRef, size, rootDir) {
+		if (tileRef && typeof tileRef === 'object') {
+			const yi = Number(tileRef.yi)
+			const xi = Number(tileRef.xi)
+			if (Number.isInteger(yi) && Number.isInteger(xi)) {
+				return `${rootDir}/${this.deterministicShardedRelativePath(yi, xi, '.json')}`
+			}
+		}
+
+		const normalizedKey = this.normalizeContentTileRef(tileRef)
+		if (!normalizedKey) {
+			throw new Error(`Invalid content tile reference: ${String(tileRef)}`)
+		}
+
+		return this.spatialCachePathFromKey(normalizedKey, size, rootDir)
 	}
 
 	bboxKeysCoveringBounds(bounds, size, precision = 5) {
@@ -1770,6 +1934,12 @@ class OSMMap extends HTMLElement {
 			clearTimeout(t)
 			t = setTimeout(() => fn(...args), ms)
 		}
+	}
+
+	spatialLog(level, message, details = {}) {
+		const logger =
+			typeof console[level] === 'function' ? console[level] : console.log
+		logger.call(console, `[OSMMap] ${message}`, details)
 	}
 
 	emitStatus({ pickStatus, error }) {
