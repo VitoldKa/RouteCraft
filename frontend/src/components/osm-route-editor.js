@@ -194,6 +194,17 @@ class OSMRouteEditor extends HTMLElement {
 				this.ui.lastSegmentColor = color || '#0060DD'
 			}
 
+			if (op.type === 'pick-color') {
+				const color = this.normalizeSegmentColor(op.color)
+				if (color) {
+					this.ui.lastSegmentColor = color
+					this.ui.annotationDraft = this.normalizeAnnotationDraft({
+						...(this.ui.annotationDraft || this.defaultAnnotationDraft()),
+						color,
+					})
+				}
+			}
+
 			this.renderAll()
 			this.$json.setJSON({ route: this.route, annotations: this.annotations })
 		})

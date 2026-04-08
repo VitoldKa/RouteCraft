@@ -67,6 +67,17 @@ class RoutePanel extends HTMLElement {
           vertical-align:middle;
           margin-right:6px;
         }
+        .swatchBtn {
+          display:inline-flex;
+          align-items:center;
+          gap:0;
+          padding:0;
+          border:none;
+          background:transparent;
+          cursor:pointer;
+          color:inherit;
+          font:inherit;
+        }
       </style>
 
       <div class="panel">
@@ -172,7 +183,7 @@ class RoutePanel extends HTMLElement {
           <div>
             <strong>${idx + 1}.</strong> way ${seg.wayId}<br>
             <span class="muted">from</span> <code>${seg.fromNode}</code> <span class="muted">→ to</span> <code>${seg.toNode}</code>
-            ${seg.color ? `<br><span class="muted"><span class="swatch" style="background:${seg.color}"></span>${seg.color}</span>` : ``}
+            ${seg.color ? `<br><button class="swatchBtn muted" data-act="pick-color" aria-label="Use ${seg.color} as current color"><span class="swatch" style="background:${seg.color}"></span>${seg.color}</button>` : ``}
           </div>
           <div style="display:flex; gap:6px; align-items:center;">
             <button class="small" data-act="up">↑</button>
@@ -198,6 +209,18 @@ class RoutePanel extends HTMLElement {
 			div.querySelectorAll('button').forEach((btn) => {
 				btn.addEventListener('click', () => {
 					const act = btn.getAttribute('data-act')
+					if (act === 'pick-color') {
+						this.dispatchEvent(
+							new CustomEvent('route-edit', {
+								detail: {
+									op: { type: 'pick-color', index: idx, color: seg.color },
+								},
+								bubbles: true,
+								composed: true,
+							})
+						)
+						return
+					}
 					this.dispatchEvent(
 						new CustomEvent('route-edit', {
 							detail: { op: { type: act, index: idx } },
