@@ -186,7 +186,8 @@ class OSMMap extends HTMLElement {
 		this.baseMapLayers = {
 			roadmap: [
 				L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-					maxZoom: 19,
+					maxNativeZoom: 19,
+					maxZoom: 22,
 					attribution: '&copy; OpenStreetMap contributors',
 				}),
 			],
@@ -194,7 +195,8 @@ class OSMMap extends HTMLElement {
 				L.tileLayer(
 					'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 					{
-						maxZoom: 19,
+						maxNativeZoom: 19,
+						maxZoom: 22,
 						attribution:
 							'Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community',
 					}
@@ -202,7 +204,8 @@ class OSMMap extends HTMLElement {
 				L.tileLayer(
 					'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
 					{
-						maxZoom: 19,
+						maxNativeZoom: 19,
+						maxZoom: 22,
 						attribution: 'Labels &copy; Esri',
 						opacity: 0.9,
 					}
@@ -1512,22 +1515,22 @@ class OSMMap extends HTMLElement {
 		if (this._moveTicking) return
 		this._moveTicking = true
 
-		requestAnimationFrame(() => {
-			this._moveTicking = false
+			requestAnimationFrame(() => {
+				this._moveTicking = false
 
-			const candidates = this.candidatesNear(e.latlng)
+				const candidates = this.candidatesNear(e.latlng)
 			if (candidates.size === 0) {
 				this.clearHover()
 				return
-			}
-			const ranked = this.rankWayCandidates(e.latlng, [...candidates])
-			const best = ranked[0] || null
+				}
+				const ranked = this.rankWayCandidates(e.latlng, [...candidates])
+				const best = ranked[0] || null
 
-			const THRESHOLD = 15
-			if (!best || best.distance > THRESHOLD) {
-				this.clearHover()
-				return
-			}
+				const threshold = this.hoverPickThresholdPixels()
+				if (!best || best.pixelDistance > threshold) {
+					this.clearHover()
+					return
+				}
 
 			const sameWay = best.wayId === this.hoveredWayId
 			const sameReason =
@@ -2012,6 +2015,27 @@ class OSMMap extends HTMLElement {
 		return this.map.distance(p, C)
 	}
 
+	pointToSegmentDistancePixels(p, a, b) {
+		const P = this.map.latLngToLayerPoint(p)
+		const A = this.map.latLngToLayerPoint(a)
+		const B = this.map.latLngToLayerPoint(b)
+
+		const ABx = B.x - A.x
+		const ABy = B.y - A.y
+		const APx = P.x - A.x
+		const APy = P.y - A.y
+		const ab2 = ABx * ABx + ABy * ABy
+
+		let t = ab2 === 0 ? 0 : (APx * ABx + APy * ABy) / ab2
+		t = Math.max(0, Math.min(1, t))
+
+		const Cx = A.x + t * ABx
+		const Cy = A.y + t * ABy
+		const dx = P.x - Cx
+		const dy = P.y - Cy
+		return Math.sqrt(dx * dx + dy * dy)
+	}
+
 	distanceToWayMeters(latlng, wayId) {
 		const ids = this.wayNodeIds.get(wayId)
 		if (!ids || ids.length < 2) return Infinity
@@ -2041,6 +2065,38 @@ class OSMMap extends HTMLElement {
 				latlng,
 				L.latLng(na.lat, na.lon),
 				L.latLng(nb.lat, nb.lon)
+			)
+			if (d < best) best = d
+		}
+		return best
+	}
+
+	distanceToWayPixels(latlng, wayId) {
+		const ids = this.wayNodeIds.get(wayId)
+		if (!ids || ids.length < 2) return Infinity
+
+		const bb = this.spatial.wayPixelBBox.get(wayId)
+		if (bb) {
+			const pad = this.hoverPickThresholdPixels() * 2
+			const p = this.map.latLngToLayerPoint(latlng)
+			const boxMinX = Math.min(bb.minx, bb.maxx) - pad
+			const boxMaxX = Math.max(bb.minx, bb.maxx) + pad
+			const boxMinY = Math.min(bb.miny, bb.maxy) - pad
+			const boxMaxY = Math.max(bb.miny, bb.maxy) + pad
+			if (p.x < boxMinX || p.x > boxMaxX || p.y < boxMinY || p.y > boxMaxY) {
+				return Infinity
+			}
+		}
+
+		let best = Infinity
+		for (let i = 0; i < ids.length - 1; i++) {
+			const a = this.nodesById.get(ids[i])
+			const b = this.nodesById.get(ids[i + 1])
+			if (!a || !b) continue
+			const d = this.pointToSegmentDistancePixels(
+				latlng,
+				L.latLng(a.lat, a.lon),
+				L.latLng(b.lat, b.lon)
 			)
 			if (d < best) best = d
 		}
@@ -2188,12 +2244,20 @@ class OSMMap extends HTMLElement {
 		return 0
 	}
 
+	hoverPickThresholdPixels() {
+		const zoom = this.map?.getZoom?.() ?? 14
+		return Math.max(5, 16 - (zoom - 14))
+	}
+
 	rankWayCandidates(latlng, wayIds = []) {
 		const expectedNodeId = this.getExpectedContinuationNodeId()
 		const ranked = []
 
 		for (const rawWayId of wayIds) {
 			const wayId = Number(rawWayId)
+			const pixelDistance = this.distanceToWayPixels(latlng, wayId)
+			if (!Number.isFinite(pixelDistance)) continue
+
 			const distance = this.distanceToWayMeters(latlng, wayId)
 			if (!Number.isFinite(distance)) continue
 
@@ -2201,7 +2265,7 @@ class OSMMap extends HTMLElement {
 			const tags = this.getWayTags(wayId)
 			const containsExpected = this.wayContainsNode(wayId, expectedNodeId)
 			const reasons = []
-			let score = -distance
+			let score = -(pixelDistance * 8) - distance
 
 			if (containsExpected) {
 				score += 40
@@ -2225,24 +2289,33 @@ class OSMMap extends HTMLElement {
 
 			if (reasons.length === 0) reasons.push('closest geometry')
 
-			ranked.push({
-				wayId,
-				distance,
-				score,
-				nearestNodeId,
-				reasons,
+				ranked.push({
+					wayId,
+					pixelDistance,
+					distance,
+					score,
+					nearestNodeId,
+					reasons,
 			})
 		}
 
 		ranked.sort((a, b) => {
+			const pixelGap = Math.abs(a.pixelDistance - b.pixelDistance)
+			if (pixelGap > 3) return a.pixelDistance - b.pixelDistance
 			if (b.score !== a.score) return b.score - a.score
+			if (a.pixelDistance !== b.pixelDistance)
+				return a.pixelDistance - b.pixelDistance
 			if (a.distance !== b.distance) return a.distance - b.distance
 			return a.wayId - b.wayId
 		})
 
 		if (ranked[0] && ranked[1]) {
 			const gap = ranked[0].score - ranked[1].score
-			if (gap < 6 || Math.abs(ranked[0].distance - ranked[1].distance) < 2) {
+			if (
+				gap < 6 ||
+				Math.abs(ranked[0].distance - ranked[1].distance) < 2 ||
+				Math.abs(ranked[0].pixelDistance - ranked[1].pixelDistance) < 2
+			) {
 				ranked[0].alternate = ranked[1]
 			}
 		}
