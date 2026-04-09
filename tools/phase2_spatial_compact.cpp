@@ -38,6 +38,7 @@ struct Config
     int precision = 5;
     std::size_t worker_threads = 0;      // 0 => auto
     std::size_t queue_capacity = 8192;
+    std::uint64_t progress_interval_ms = 500;
 };
 
 struct TileId
@@ -116,6 +117,26 @@ struct RunStats
     std::uint64_t total_jobs = 0;
     std::uint64_t bbox_jobs = 0;
     std::uint64_t content_jobs = 0;
+};
+
+struct Phase1Stats
+{
+    bool loaded = false;
+    std::optional<std::uint64_t> ways_matched;
+    std::optional<std::uint64_t> bbox_refs_written;
+    std::optional<std::uint64_t> bbox_tile_count;
+    std::optional<std::uint64_t> content_tile_count;
+};
+
+struct ProgressState
+{
+    std::uint64_t total_jobs = 0;
+    std::uint64_t bbox_jobs_total = 0;
+    std::uint64_t content_jobs_total = 0;
+    std::atomic<std::uint64_t> jobs_enqueued{0};
+    std::atomic<std::uint64_t> jobs_written{0};
+    std::atomic<std::uint64_t> bbox_written{0};
+    std::atomic<std::uint64_t> content_written{0};
 };
 
 template <typename T>
@@ -406,6 +427,101 @@ static std::optional<long> extract_long_field(std::string_view line, std::string
     return neg ? -v : v;
 }
 
+static Phase1Stats read_phase1_stats(const Config &cfg)
+{
+    const fs::path path = fs::path(cfg.in_dir) / "phase1_config.json";
+    Phase1Stats stats;
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return stats;
+
+    stats.loaded = true;
+
+    std::string line;
+    while (std::getline(in, line))
+    {
+        if (!stats.ways_matched)
+            stats.ways_matched = extract_uint_field(line, "waysMatched");
+        if (!stats.bbox_refs_written)
+            stats.bbox_refs_written = extract_uint_field(line, "bboxRefsWritten");
+        if (!stats.bbox_tile_count)
+            stats.bbox_tile_count = extract_uint_field(line, "bboxTileCount");
+        if (!stats.content_tile_count)
+            stats.content_tile_count = extract_uint_field(line, "contentTileCount");
+    }
+
+    return stats;
+}
+
+static void print_phase1_stats_summary(const Phase1Stats &stats)
+{
+    if (!stats.loaded)
+        return;
+
+    std::cerr << "Phase 1 metadata:";
+    if (stats.ways_matched)
+        std::cerr << " waysMatched=" << *stats.ways_matched;
+    if (stats.bbox_refs_written)
+        std::cerr << " bboxRefsWritten=" << *stats.bbox_refs_written;
+    if (stats.bbox_tile_count)
+        std::cerr << " bboxTileCount=" << *stats.bbox_tile_count;
+    if (stats.content_tile_count)
+        std::cerr << " contentTileCount=" << *stats.content_tile_count;
+    std::cerr << "\n";
+}
+
+static void warn_if_phase1_counts_differ(const Phase1Stats &phase1_stats, const RunStats &run_stats)
+{
+    if (phase1_stats.bbox_tile_count && *phase1_stats.bbox_tile_count != run_stats.bbox_jobs)
+    {
+        std::cerr << "Warning: phase1 bboxTileCount=" << *phase1_stats.bbox_tile_count
+                  << " but phase2 indexed " << run_stats.bbox_jobs << " bbox jobs\n";
+    }
+
+    if (phase1_stats.content_tile_count && *phase1_stats.content_tile_count != run_stats.content_jobs)
+    {
+        std::cerr << "Warning: phase1 contentTileCount=" << *phase1_stats.content_tile_count
+                  << " but phase2 indexed " << run_stats.content_jobs << " content jobs\n";
+    }
+}
+
+static void print_progress_line(const ProgressState &progress)
+{
+    const std::uint64_t total = progress.total_jobs;
+    const std::uint64_t queued = progress.jobs_enqueued.load();
+    const std::uint64_t written = progress.jobs_written.load();
+    const std::uint64_t bbox_written = progress.bbox_written.load();
+    const std::uint64_t content_written = progress.content_written.load();
+    const std::uint64_t pct = total == 0 ? 100 : (written * 100 / total);
+
+    std::cerr << "\rProgress: " << written << "/" << total
+              << " jobs (" << pct << "%)"
+              << " | queued " << queued << "/" << total
+              << " | bbox " << bbox_written << "/" << progress.bbox_jobs_total
+              << " | content " << content_written << "/" << progress.content_jobs_total
+              << "   "
+              << std::flush;
+}
+
+static void progress_loop(
+    const ProgressState &progress,
+    std::atomic<bool> &done,
+    std::uint64_t interval_ms)
+{
+    const auto sleep_for = std::chrono::milliseconds(
+        interval_ms == 0 ? 500 : interval_ms);
+
+    while (!done.load())
+    {
+        print_progress_line(progress);
+        std::this_thread::sleep_for(sleep_for);
+    }
+
+    print_progress_line(progress);
+    std::cerr << "\n";
+}
+
 static std::optional<TileId> parse_tile_id_from_base(const std::string &base)
 {
     const auto pos = base.find('_');
@@ -621,7 +737,7 @@ static void worker_loop(const Config &cfg, BlockingQueue<Job> &job_queue, Blocki
     }
 }
 
-static void writer_loop(const Config &cfg, BlockingQueue<Result> &result_queue)
+static void writer_loop(const Config &cfg, BlockingQueue<Result> &result_queue, ProgressState *progress)
 {
     const fs::path bbox_root = fs::path(cfg.out_dir) / "bbox-index";
     const fs::path content_root = fs::path(cfg.out_dir) / "content-tiles";
@@ -655,6 +771,15 @@ static void writer_loop(const Config &cfg, BlockingQueue<Result> &result_queue)
 
             pending.erase(it);
             ++next_seq;
+
+            if (progress)
+            {
+                progress->jobs_written.fetch_add(1);
+                if (r.kind == JobKind::BboxIndex)
+                    progress->bbox_written.fetch_add(1);
+                else
+                    progress->content_written.fetch_add(1);
+            }
         }
     };
 
@@ -682,6 +807,7 @@ static bool copy_phase1_config_if_present(const Config &cfg)
 static void write_phase2_metadata(
     const Config &cfg,
     const RunStats &stats,
+    const Phase1Stats &phase1_stats,
     bool phase1_config_copied,
     const std::string &phase2_command,
     const std::string &git_commit,
@@ -725,6 +851,10 @@ static void write_phase2_metadata(
         << "    \"jobCount\": " << stats.total_jobs << ",\n"
         << "    \"bboxJobCount\": " << stats.bbox_jobs << ",\n"
         << "    \"contentJobCount\": " << stats.content_jobs << ",\n"
+        << "    \"phase1WaysMatched\": " << (phase1_stats.ways_matched ? std::to_string(*phase1_stats.ways_matched) : "null") << ",\n"
+        << "    \"phase1BboxRefsWritten\": " << (phase1_stats.bbox_refs_written ? std::to_string(*phase1_stats.bbox_refs_written) : "null") << ",\n"
+        << "    \"phase1BboxTileCount\": " << (phase1_stats.bbox_tile_count ? std::to_string(*phase1_stats.bbox_tile_count) : "null") << ",\n"
+        << "    \"phase1ContentTileCount\": " << (phase1_stats.content_tile_count ? std::to_string(*phase1_stats.content_tile_count) : "null") << ",\n"
         << "    \"bboxTileCount\": " << compacted_output_stats.bbox_jobs << ",\n"
         << "    \"contentTileCount\": " << compacted_output_stats.content_jobs << "\n"
         << "  }\n"
@@ -770,6 +900,8 @@ static Config parse_args(int argc, char **argv)
             cfg.worker_threads = static_cast<std::size_t>(std::stoull(need("--threads")));
         else if (arg == "--queue-capacity")
             cfg.queue_capacity = static_cast<std::size_t>(std::stoull(need("--queue-capacity")));
+        else if (arg == "--progress-interval-ms")
+            cfg.progress_interval_ms = std::stoull(need("--progress-interval-ms"));
         else
             throw std::runtime_error("Argument inconnu: " + arg);
     }
@@ -810,6 +942,7 @@ int main(int argc, char **argv)
 
         const fs::path bbox_in = fs::path(cfg.in_dir) / "bbox_index";
         const fs::path content_in = fs::path(cfg.in_dir) / "content_tiles";
+        const Phase1Stats phase1_stats = read_phase1_stats(cfg);
 
         std::vector<Job> jobs;
         jobs.reserve(200000);
@@ -899,15 +1032,26 @@ int main(int argc, char **argv)
         }
 
         run_stats.total_jobs = static_cast<std::uint64_t>(jobs.size());
+        warn_if_phase1_counts_differ(phase1_stats, run_stats);
 
         std::cerr << "Jobs total: " << jobs.size()
                   << " | worker_threads=" << cfg.worker_threads
                   << " | queue_capacity=" << cfg.queue_capacity << "\n";
+        print_phase1_stats_summary(phase1_stats);
 
         BlockingQueue<Job> job_queue(cfg.queue_capacity);
         BlockingQueue<Result> result_queue(cfg.queue_capacity);
+        ProgressState progress;
+        progress.total_jobs = run_stats.total_jobs;
+        progress.bbox_jobs_total = run_stats.bbox_jobs;
+        progress.content_jobs_total = run_stats.content_jobs;
+        std::atomic<bool> progress_done = false;
 
-        std::thread writer(writer_loop, std::cref(cfg), std::ref(result_queue));
+        std::thread writer(writer_loop, std::cref(cfg), std::ref(result_queue), &progress);
+        std::thread progress_reporter(progress_loop,
+                                      std::cref(progress),
+                                      std::ref(progress_done),
+                                      cfg.progress_interval_ms);
 
         std::vector<std::thread> workers;
         workers.reserve(cfg.worker_threads);
@@ -921,12 +1065,9 @@ int main(int argc, char **argv)
 
         for (std::size_t i = 0; i < jobs.size(); ++i)
         {
-            if ((i + 1) % 500 == 0 || i == 0)
-            {
-                std::cerr << "enqueue " << (i + 1) << "/" << jobs.size() << "\n";
-            }
             if (!job_queue.push(std::move(jobs[i])))
                 throw std::runtime_error("Queue jobs fermee trop tôt.");
+            progress.jobs_enqueued.fetch_add(1);
         }
 
         job_queue.close();
@@ -935,6 +1076,8 @@ int main(int argc, char **argv)
 
         result_queue.close();
         writer.join();
+        progress_done.store(true);
+        progress_reporter.join();
 
         const bool phase1_config_copied = copy_phase1_config_if_present(cfg);
         const auto finished_clock = std::chrono::steady_clock::now();
@@ -948,6 +1091,7 @@ int main(int argc, char **argv)
         write_phase2_metadata(
             cfg,
             run_stats,
+            phase1_stats,
             phase1_config_copied,
             phase2_command,
             git_commit,

@@ -50,6 +50,13 @@ namespace fs = std::filesystem;
 
 struct Config
 {
+    enum class ProgressMode
+    {
+        none,
+        bytes,
+        count,
+    };
+
     std::string input_file;
     std::string out_dir = "tmp_spatial";
     double bbox_size = 0.01;
@@ -58,6 +65,8 @@ struct Config
     std::size_t flush_every = 20000;
     std::size_t worker_threads = 0;     // 0 => auto
     std::size_t queue_capacity = 20000; // borné pour ne pas exploser la RAM
+    ProgressMode progress_mode = ProgressMode::none;
+    std::uint64_t progress_interval_ms = 500;
 };
 
 class HelpRequested : public std::runtime_error
@@ -118,6 +127,17 @@ static std::string build_help_text(const std::string &program_name)
         << "      Maximum number of pending work items in each queue.\n"
         << "      Default: 20000\n"
         << "\n"
+        << "  --progress MODE\n"
+        << "      Progress display mode.\n"
+        << "      none  = disable progress reporting\n"
+        << "      bytes = good compromise, based on input bytes read\n"
+        << "      count = best accuracy, does a pre-pass to count nodes and ways\n"
+        << "      Default: none\n"
+        << "\n"
+        << "  --progress-interval-ms N\n"
+        << "      Minimum delay between progress updates in milliseconds.\n"
+        << "      Default: 500\n"
+        << "\n"
         << "  -h, --help\n"
         << "      Show this help message.\n"
         << "\n"
@@ -132,7 +152,9 @@ static std::string build_help_text(const std::string &program_name)
         << "Examples:\n"
         << "  " << program_name << " switzerland-latest.osm.pbf\n"
         << "  " << program_name
-        << " europe-latest.osm.pbf --out-dir tmp_spatial --threads 8 --flush-every 50000\n";
+        << " europe-latest.osm.pbf --out-dir tmp_spatial --threads 8 --flush-every 50000\n"
+        << "  " << program_name << " switzerland-latest.osm.pbf --progress bytes\n"
+        << "  " << program_name << " switzerland-latest.osm.pbf --progress count\n";
     return out.str();
 }
 
@@ -152,7 +174,9 @@ static bool is_target_way(const osmium::Way &way)
 {
     const char *highway = way.tags().get_value_by_key("highway");
     if (value_in_list(highway, {
+                                   "motorway",
                                    "motorway_link",
+                                   "trunk",
                                    "trunk_link",
                                    "primary_link",
                                    "secondary_link",
@@ -658,13 +682,20 @@ class ProducerHandler : public osmium::handler::Handler
 public:
     ProducerHandler(
         BlockingQueue<WorkItem> &work_queue,
+        std::atomic<std::uint64_t> &nodes_seen,
         std::atomic<std::uint64_t> &ways_seen,
         std::atomic<std::uint64_t> &ways_matched,
         std::atomic<std::uint64_t> &seq_counter)
         : work_queue_(work_queue),
+          nodes_seen_(nodes_seen),
           ways_seen_(ways_seen),
           ways_matched_(ways_matched),
           seq_counter_(seq_counter) {}
+
+    void node(const osmium::Node &)
+    {
+        ++nodes_seen_;
+    }
 
     void way(const osmium::Way &way)
     {
@@ -735,10 +766,113 @@ public:
 
 private:
     BlockingQueue<WorkItem> &work_queue_;
+    std::atomic<std::uint64_t> &nodes_seen_;
     std::atomic<std::uint64_t> &ways_seen_;
     std::atomic<std::uint64_t> &ways_matched_;
     std::atomic<std::uint64_t> &seq_counter_;
 };
+
+class CountOnlyHandler : public osmium::handler::Handler
+{
+public:
+    CountOnlyHandler(
+        std::atomic<std::uint64_t> &nodes_total,
+        std::atomic<std::uint64_t> &ways_total)
+        : nodes_total_(nodes_total), ways_total_(ways_total) {}
+
+    void node(const osmium::Node &)
+    {
+        ++nodes_total_;
+    }
+
+    void way(const osmium::Way &)
+    {
+        ++ways_total_;
+    }
+
+private:
+    std::atomic<std::uint64_t> &nodes_total_;
+    std::atomic<std::uint64_t> &ways_total_;
+};
+
+struct ProgressState
+{
+    std::atomic<std::uint64_t> bytes_read{0};
+    std::atomic<std::uint64_t> file_size{0};
+    std::atomic<std::uint64_t> nodes_seen{0};
+    std::atomic<std::uint64_t> ways_seen{0};
+    std::atomic<std::uint64_t> ways_matched{0};
+    std::atomic<std::uint64_t> ways_written{0};
+    std::atomic<std::uint64_t> bbox_refs_written{0};
+    std::atomic<std::uint64_t> total_nodes{0};
+    std::atomic<std::uint64_t> total_ways{0};
+};
+
+static std::string human_bytes(std::uint64_t bytes)
+{
+    static const char *units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+    double value = static_cast<double>(bytes);
+    std::size_t unit = 0;
+    while (value >= 1024.0 && unit + 1 < (sizeof(units) / sizeof(units[0])))
+    {
+        value /= 1024.0;
+        ++unit;
+    }
+
+    std::ostringstream out;
+    out.setf(std::ios::fixed);
+    out.precision(unit == 0 ? 0 : 1);
+    out << value << ' ' << units[unit];
+    return out.str();
+}
+
+static void print_progress_line(const Config &cfg, const ProgressState &state)
+{
+    std::ostringstream line;
+    line.setf(std::ios::fixed);
+    line.precision(1);
+
+    if (cfg.progress_mode == Config::ProgressMode::bytes)
+    {
+        const std::uint64_t bytes_read = state.bytes_read.load(std::memory_order_relaxed);
+        const std::uint64_t file_size = state.file_size.load(std::memory_order_relaxed);
+        const double percent =
+            file_size > 0
+                ? std::min(100.0, (100.0 * static_cast<double>(bytes_read)) / static_cast<double>(file_size))
+                : 0.0;
+
+        line << "\r[phase1] " << percent << "% | read "
+             << human_bytes(bytes_read) << " / " << human_bytes(file_size)
+             << " | ways scanned " << state.ways_seen.load(std::memory_order_relaxed)
+             << " | matched " << state.ways_matched.load(std::memory_order_relaxed)
+             << " | written " << state.ways_written.load(std::memory_order_relaxed);
+    }
+    else if (cfg.progress_mode == Config::ProgressMode::count)
+    {
+        const std::uint64_t nodes_seen = state.nodes_seen.load(std::memory_order_relaxed);
+        const std::uint64_t ways_seen = state.ways_seen.load(std::memory_order_relaxed);
+        const std::uint64_t total_nodes = state.total_nodes.load(std::memory_order_relaxed);
+        const std::uint64_t total_ways = state.total_ways.load(std::memory_order_relaxed);
+        const std::uint64_t total_items = total_nodes + total_ways;
+        const std::uint64_t seen_items = nodes_seen + ways_seen;
+        const double percent =
+            total_items > 0
+                ? std::min(100.0, (100.0 * static_cast<double>(seen_items)) / static_cast<double>(total_items))
+                : 0.0;
+
+        line << "\r[phase1] " << percent << "% | nodes "
+             << nodes_seen << " / " << total_nodes
+             << " | ways " << ways_seen << " / " << total_ways
+             << " | matched " << state.ways_matched.load(std::memory_order_relaxed)
+             << " | written " << state.ways_written.load(std::memory_order_relaxed);
+    }
+    else
+    {
+        return;
+    }
+
+    std::cerr << line.str() << std::flush;
+}
 
 static WorkerResult process_work_item(const Config &cfg, WorkItem &&item)
 {
@@ -784,6 +918,8 @@ static void write_filter_summary(std::ostream &out)
 {
     out << "  \"filterSummary\": {\n"
         << "    \"highwayValues\": [\n"
+        << "      \"motorway\", \"motorway_link\", \"trunk\", \"trunk_link\",\n"
+        << "      \"primary_link\", \"secondary_link\", \"tertiary_link\",\n"
         << "      \"pedestrian\", \"residential\", \"living_street\", \"tertiary\",\n"
         << "      \"secondary\", \"primary\", \"unclassified\", \"service\",\n"
         << "      \"path\", \"track\"\n"
@@ -810,7 +946,8 @@ static void worker_loop(
 static void writer_loop(
     const Config &cfg,
     BlockingQueue<WorkerResult> &result_queue,
-    std::atomic<std::uint64_t> &total_bbox_refs_written)
+    std::atomic<std::uint64_t> &total_bbox_refs_written,
+    ProgressState *progress_state = nullptr)
 {
     BufferedAppender writer(cfg.out_dir);
     // NullWriter writer(cfg.out_dir);
@@ -845,19 +982,29 @@ static void writer_loop(
                 std::memory_order_relaxed);
 
             ++written_results;
+            if (progress_state)
+            {
+                progress_state->ways_written.store(written_results, std::memory_order_relaxed);
+                progress_state->bbox_refs_written.store(
+                    total_bbox_refs_written.load(std::memory_order_relaxed),
+                    std::memory_order_relaxed);
+            }
             ++next_seq;
             pending.erase(it);
 
             if (written_results % cfg.flush_every == 0)
             {
                 writer.flush();
-                const auto refs = total_bbox_refs_written.load(std::memory_order_relaxed);
-                std::cerr << "ways written: " << written_results
-                          << ", average bbox refs per way: "
-                          << (written_results
-                                  ? static_cast<double>(refs) / static_cast<double>(written_results)
-                                  : 0.0)
-                          << "\n";
+                if (cfg.progress_mode == Config::ProgressMode::none)
+                {
+                    const auto refs = total_bbox_refs_written.load(std::memory_order_relaxed);
+                    std::cerr << "ways written: " << written_results
+                              << ", average bbox refs per way: "
+                              << (written_results
+                                      ? static_cast<double>(refs) / static_cast<double>(written_results)
+                                      : 0.0)
+                              << "\n";
+                }
             }
         }
     };
@@ -894,6 +1041,20 @@ static Config parse_args(int argc, char **argv)
             throw HelpRequested(build_help_text(program_name));
         else if (arg == "--out-dir")
             cfg.out_dir = need("--out-dir");
+        else if (arg == "--progress")
+        {
+            const std::string mode = need("--progress");
+            if (mode == "none")
+                cfg.progress_mode = Config::ProgressMode::none;
+            else if (mode == "bytes")
+                cfg.progress_mode = Config::ProgressMode::bytes;
+            else if (mode == "count")
+                cfg.progress_mode = Config::ProgressMode::count;
+            else
+                throw std::runtime_error("Invalid --progress mode: " + mode);
+        }
+        else if (arg == "--progress-interval-ms")
+            cfg.progress_interval_ms = static_cast<std::uint64_t>(std::stoull(need("--progress-interval-ms")));
         else if (arg == "--bbox-size")
             cfg.bbox_size = std::stod(need("--bbox-size"));
         else if (arg == "--tile-size")
@@ -921,6 +1082,8 @@ static Config parse_args(int argc, char **argv)
 
     if (cfg.queue_capacity == 0)
         throw std::runtime_error("--queue-capacity must be greater than 0");
+    if (cfg.progress_interval_ms == 0)
+        throw std::runtime_error("--progress-interval-ms must be greater than 0");
 
     return cfg;
 }
@@ -948,10 +1111,37 @@ int main(int argc, char **argv)
         const std::uint64_t started_at_ms = spatial_metadata::unix_time_ms();
         const std::string started_at_iso = spatial_metadata::iso_utc_now();
 
+        ProgressState progress_state;
         std::atomic<std::uint64_t> ways_seen{0};
+        std::atomic<std::uint64_t> nodes_seen{0};
         std::atomic<std::uint64_t> ways_matched{0};
         std::atomic<std::uint64_t> seq_counter{0};
         std::atomic<std::uint64_t> total_bbox_refs_written{0};
+
+        if (cfg.progress_mode == Config::ProgressMode::count)
+        {
+            std::cerr << "Pre-counting nodes and ways for accurate progress...\n";
+            std::atomic<std::uint64_t> total_nodes{0};
+            std::atomic<std::uint64_t> total_ways{0};
+            CountOnlyHandler counter(total_nodes, total_ways);
+
+            osmium::io::File count_file{cfg.input_file};
+            osmium::io::Reader count_reader{
+                count_file,
+                osmium::osm_entity_bits::node | osmium::osm_entity_bits::way};
+
+            while (auto buffer = count_reader.read())
+            {
+                osmium::apply(buffer, counter);
+            }
+            count_reader.close();
+
+            progress_state.total_nodes.store(total_nodes.load(), std::memory_order_relaxed);
+            progress_state.total_ways.store(total_ways.load(), std::memory_order_relaxed);
+
+            std::cerr << "Pre-count complete: nodes=" << total_nodes.load()
+                      << ", ways=" << total_ways.load() << "\n";
+        }
 
         BlockingQueue<WorkItem> work_queue(cfg.queue_capacity);
         BlockingQueue<WorkerResult> result_queue(cfg.queue_capacity);
@@ -968,7 +1158,8 @@ int main(int argc, char **argv)
             writer_loop,
             std::cref(cfg),
             std::ref(result_queue),
-            std::ref(total_bbox_refs_written));
+            std::ref(total_bbox_refs_written),
+            cfg.progress_mode == Config::ProgressMode::none ? nullptr : &progress_state);
 
         std::vector<std::thread> workers;
         workers.reserve(cfg.worker_threads);
@@ -995,10 +1186,38 @@ int main(int argc, char **argv)
         location_handler_type location_handler{index};
         location_handler.ignore_errors();
 
-        ProducerHandler producer(work_queue, ways_seen, ways_matched, seq_counter);
+        progress_state.file_size.store(reader.file_size(), std::memory_order_relaxed);
+        ProducerHandler producer(work_queue, nodes_seen, ways_seen, ways_matched, seq_counter);
 
-        osmium::apply(reader, location_handler, producer);
+        auto last_progress_update = std::chrono::steady_clock::now();
+        while (auto buffer = reader.read())
+        {
+            osmium::apply(buffer, location_handler, producer);
+
+            progress_state.bytes_read.store(reader.offset(), std::memory_order_relaxed);
+            progress_state.nodes_seen.store(nodes_seen.load(), std::memory_order_relaxed);
+            progress_state.ways_seen.store(ways_seen.load(), std::memory_order_relaxed);
+            progress_state.ways_matched.store(ways_matched.load(), std::memory_order_relaxed);
+
+            if (cfg.progress_mode != Config::ProgressMode::none)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                            now - last_progress_update)
+                                            .count();
+                if (elapsed_ms >= static_cast<long long>(cfg.progress_interval_ms))
+                {
+                    print_progress_line(cfg, progress_state);
+                    last_progress_update = now;
+                }
+            }
+        }
         reader.close();
+
+        progress_state.bytes_read.store(reader.offset(), std::memory_order_relaxed);
+        progress_state.nodes_seen.store(nodes_seen.load(), std::memory_order_relaxed);
+        progress_state.ways_seen.store(ways_seen.load(), std::memory_order_relaxed);
+        progress_state.ways_matched.store(ways_matched.load(), std::memory_order_relaxed);
 
         work_queue.close();
 
@@ -1008,7 +1227,17 @@ int main(int argc, char **argv)
         result_queue.close();
         writer_thread.join();
 
+        if (cfg.progress_mode != Config::ProgressMode::none)
+        {
+            progress_state.ways_written.store(ways_matched.load(), std::memory_order_relaxed);
+            progress_state.bbox_refs_written.store(
+                total_bbox_refs_written.load(), std::memory_order_relaxed);
+            print_progress_line(cfg, progress_state);
+            std::cerr << "\n";
+        }
+
         std::cerr << "Phase 1 complete.\n";
+        std::cerr << "- nodes scanned: " << nodes_seen.load() << "\n";
         std::cerr << "- ways scanned: " << ways_seen.load() << "\n";
         std::cerr << "- ways matched: " << ways_matched.load() << "\n";
         std::cerr << "- bbox refs written: " << total_bbox_refs_written.load() << "\n";
