@@ -152,6 +152,11 @@ static bool is_target_way(const osmium::Way &way)
 {
     const char *highway = way.tags().get_value_by_key("highway");
     if (value_in_list(highway, {
+                                   "motorway_link",
+                                   "trunk_link",
+                                   "primary_link",
+                                   "secondary_link",
+                                   "tertiary_link",
                                    "pedestrian",
                                    "residential",
                                    "living_street",
