@@ -6,9 +6,31 @@ class JsonEditor extends HTMLElement {
 		this.cm = null
 		this.lastAppliedText = ''
 		this.dirty = false
+		this.expanded = false
 
 		this._ro = null
 		this._initTried = false
+	}
+
+	get editorTitle() {
+		const value = this.getAttribute('title')
+		return value && value.trim() ? value.trim() : 'JSON'
+	}
+
+	get editorMeta() {
+		const value = this.getAttribute('meta')
+		return value && value.trim() ? value.trim() : 'import/export'
+	}
+
+	get editorDescription() {
+		const value = this.getAttribute('description')
+		return value && value.trim()
+			? value.trim()
+			: 'Import/export, lint dans la marge'
+	}
+
+	get isReadOnly() {
+		return this.hasAttribute('readonly')
 	}
 
 	connectedCallback() {
@@ -16,6 +38,41 @@ class JsonEditor extends HTMLElement {
       <style>
         :host { display:block; }
         .wrap { padding: 0 12px 12px 12px; }
+        .section {
+          border:1px solid #e5e5e5;
+          border-radius:12px;
+          background:#fbfbfb;
+          overflow:hidden;
+        }
+        .summary {
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          padding:10px 12px;
+          cursor:pointer;
+          user-select:none;
+          list-style:none;
+          font-weight:600;
+        }
+        .summary::-webkit-details-marker { display:none; }
+        .summary::after {
+          content:'▸';
+          color:#666;
+          font-size:12px;
+          transform:translateY(1px);
+        }
+        .section[open] .summary::after {
+          content:'▾';
+        }
+        .summaryMeta {
+          color:#666;
+          font-size:12px;
+          font-weight:500;
+        }
+        .body {
+          padding: 0 12px 12px 12px;
+        }
         .muted { color:#666; font-size: 13px; line-height:1.35; }
         .err {
           margin-top: 8px;
@@ -48,11 +105,26 @@ class JsonEditor extends HTMLElement {
             href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/lint/lint.min.css">
 
       <div class="wrap">
-        <div class="muted"><strong>JSON</strong> (import/export, lint dans la marge)</div>
-        <textarea id="ta" spellcheck="false"></textarea>
-        <div id="err" class="err"></div>
+        <details id="jsonSection" class="section" ${this.expanded ? 'open' : ''}>
+          <summary class="summary">
+            <span>${this.editorTitle}</span>
+            <span class="summaryMeta">${this.editorMeta}</span>
+          </summary>
+          <div class="body">
+            <div class="muted">${this.editorDescription}</div>
+            <textarea id="ta" spellcheck="false"></textarea>
+            <div id="err" class="err"></div>
+          </div>
+        </details>
       </div>
     `
+
+		this.shadowRoot
+			.querySelector('#jsonSection')
+			.addEventListener('toggle', (e) => {
+				this.expanded = e.currentTarget.open
+				if (this.expanded) this.safeRefresh()
+			})
 
 		// Init CodeMirror après layout + quand CodeMirror est dispo
 		this.initWhenReady()
@@ -260,6 +332,7 @@ class JsonEditor extends HTMLElement {
 			lint: true,
 			tabSize: 2,
 			indentUnit: 2,
+			readOnly: this.isReadOnly,
 		})
 
 		// Valeur pending si setJSON a été appelé trop tôt
@@ -315,7 +388,7 @@ class JsonEditor extends HTMLElement {
 
 	// ---------- change/blur ----------
 	onChange() {
-		if (!this.cm) return
+		if (!this.cm || this.isReadOnly) return
 
 		const now = this.cm.getValue()
 		this.dirty = now !== this.lastAppliedText
@@ -333,7 +406,7 @@ class JsonEditor extends HTMLElement {
 	}
 
 	onBlur() {
-		if (!this.cm || !this.dirty) return
+		if (!this.cm || this.isReadOnly || !this.dirty) return
 		const parsed = this.getParsed()
 		if (parsed.ok) {
 			this.dispatchEvent(

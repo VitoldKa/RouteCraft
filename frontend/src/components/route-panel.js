@@ -11,6 +11,7 @@ class RoutePanel extends HTMLElement {
 			ioStatus: { kind: 'ok', text: 'Synchronisé' },
 			dirty: false,
 			selectedIndex: -1,
+			segmentsExpanded: false,
 		}
 	}
 
@@ -43,6 +44,42 @@ class RoutePanel extends HTMLElement {
         .pill.ok { border-color:#cde9cd; }
         .pill.warn { border-color:#f1df9c; }
         .list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+        .segmentSection {
+          margin-top:12px;
+          border:1px solid #e5e5e5;
+          border-radius:12px;
+          background:#fbfbfb;
+          overflow:hidden;
+        }
+        .segmentSummary {
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          padding:10px 12px;
+          cursor:pointer;
+          user-select:none;
+          list-style:none;
+          font-weight:600;
+        }
+        .segmentSummary::-webkit-details-marker { display:none; }
+        .segmentSummary::after {
+          content:'▸';
+          color:#666;
+          font-size:12px;
+          transform:translateY(1px);
+        }
+        .segmentSection[open] .segmentSummary::after {
+          content:'▾';
+        }
+        .segmentMeta {
+          color:#666;
+          font-size:12px;
+          font-weight:500;
+        }
+        .segmentBody {
+          padding:0 12px 12px 12px;
+        }
         .item {
           background:#fff; border:1px solid #e5e5e5; border-radius:12px;
           padding:8px; display:flex; flex-direction:column; gap:6px;
@@ -114,13 +151,20 @@ class RoutePanel extends HTMLElement {
           </div>
         </div>
 
-        <div style="margin-top:12px;" class="muted"><strong>Itinéraire (tronçons)</strong> :</div>
-        <div class="list" id="list"></div>
+        <details id="segmentsSection" class="segmentSection" ${s.segmentsExpanded ? 'open' : ''}>
+          <summary class="segmentSummary">
+            <span>Itinéraire (tronçons)</span>
+            <span class="segmentMeta">${s.route.length} segment${s.route.length > 1 ? 's' : ''}</span>
+          </summary>
+          <div class="segmentBody">
+            <div class="list" id="list"></div>
+          </div>
+        </details>
 
         <div class="row" style="margin-top:12px;">
+        <button id="import">Importer</button>
           <button id="export">Exporter</button>
           <button id="exportDrawable">Exporter dessin</button>
-          <button id="import">Importer</button>
           <button id="loadFromRoute">Charger les ways</button>
           <button id="format" class="small">Formater JSON</button>
         </div>
@@ -153,6 +197,11 @@ class RoutePanel extends HTMLElement {
 				})
 			)
 		})
+		this.shadowRoot
+			.querySelector('#segmentsSection')
+			.addEventListener('toggle', (e) => {
+				this.state.segmentsExpanded = e.currentTarget.open
+			})
 
 		// actions
 		this.shadowRoot

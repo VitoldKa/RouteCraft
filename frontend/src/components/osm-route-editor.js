@@ -42,20 +42,31 @@ class OSMRouteEditor extends HTMLElement {
         .wrap { display:flex; height: 100vh; width:100vw; }
         osm-map { flex: 1; }
         .panel { width: 420px; border-left:1px solid #ddd; background:#fafafa; overflow:auto; }
+        .jsonStack { display:flex; flex-direction:column; gap:12px; padding-bottom:12px; }
       </style>
 
       <div class="wrap">
         <osm-map></osm-map>
         <div class="panel">
           <route-panel></route-panel>
-          <json-editor></json-editor>
+          <div class="jsonStack">
+            <json-editor></json-editor>
+            <json-editor
+              id="drawableJson"
+              title="JSON dessin"
+              meta="export drawable"
+              description="Sortie en primitives prêtes à dessiner"
+              readonly
+            ></json-editor>
+          </div>
         </div>
       </div>
     `
 
 		this.$map = this.shadowRoot.querySelector('osm-map')
 		this.$panel = this.shadowRoot.querySelector('route-panel')
-		this.$json = this.shadowRoot.querySelector('json-editor')
+		this.$json = this.shadowRoot.querySelector('json-editor:not(#drawableJson)')
+		this.$drawableJson = this.shadowRoot.querySelector('#drawableJson')
 
 		this.renderAll()
 
@@ -103,6 +114,7 @@ class OSMRouteEditor extends HTMLElement {
 				this.ui.annotationDraft = this.defaultAnnotationDraft()
 				this.renderAll()
 				this.$map.clearSelection()
+				this.$drawableJson.setJSON(this.buildDrawableExport())
 				return
 			}
 
@@ -141,7 +153,7 @@ class OSMRouteEditor extends HTMLElement {
 					this.renderPanel()
 					return
 				}
-				this.$json.setJSON(drawable)
+				this.$drawableJson.setJSON(drawable)
 				this.ui.dirty = false
 				this.ui.ioStatus = { kind: 'ok', text: 'Export dessin prêt' }
 				this.renderPanel()
@@ -569,6 +581,7 @@ class OSMRouteEditor extends HTMLElement {
 		this.$map.setAnnotations(this.annotations)
 		this.$map.setSelectedIndex(this.ui.selectedIndex)
 		this.$json.setJSON({ route: this.route, annotations: this.annotations })
+		this.$drawableJson.setJSON(this.buildDrawableExport())
 
 		// initial bbox load
 		this.$map.loadWaysInView().then(() => {
@@ -859,12 +872,10 @@ class OSMRouteEditor extends HTMLElement {
 	}
 
 	buildDrawableExport() {
-		const route = this.route.map((seg) => ({ ...seg }))
-		const annotations = this.annotations.map((annotation) => ({ ...annotation }))
 		const primitives = []
 		const missing = []
 
-		route.forEach((seg, idx) => {
+		this.route.forEach((seg, idx) => {
 			const latlngs = this.resolveSegmentLatLngs(seg)
 			if (latlngs.length < 2) {
 				missing.push(`segment ${idx + 1} (way ${seg.wayId})`)
@@ -872,11 +883,6 @@ class OSMRouteEditor extends HTMLElement {
 			}
 			primitives.push({
 				type: 'polyline',
-				id: `segment-${idx + 1}`,
-				segmentIndex: idx,
-				wayId: seg.wayId,
-				fromNode: seg.fromNode,
-				toNode: seg.toNode,
 				color: this.normalizeSegmentColor(seg.color) || '#0060DD',
 				weight: 7,
 				latlngs: latlngs.map(([lat, lon]) => [
@@ -886,7 +892,7 @@ class OSMRouteEditor extends HTMLElement {
 			})
 		})
 
-		annotations.forEach((annotation) => {
+		this.annotations.forEach((annotation) => {
 			primitives.push({
 				type: 'label',
 				id: annotation.id,
@@ -910,9 +916,6 @@ class OSMRouteEditor extends HTMLElement {
 
 		this.ui.lastError = null
 		return {
-			format: 'routecraft-drawable-v1',
-			route,
-			annotations,
 			primitives,
 			bounds: this.computeDrawableBounds(primitives),
 		}
