@@ -119,6 +119,7 @@ class RoutePanel extends HTMLElement {
 
         <div class="row" style="margin-top:12px;">
           <button id="export">Exporter</button>
+          <button id="exportDrawable">Exporter dessin</button>
           <button id="import">Importer</button>
           <button id="loadFromRoute">Charger les ways</button>
           <button id="format" class="small">Formater JSON</button>
@@ -163,6 +164,9 @@ class RoutePanel extends HTMLElement {
 		this.shadowRoot
 			.querySelector('#export')
 			.addEventListener('click', () => this.emitAction('export'))
+		this.shadowRoot
+			.querySelector('#exportDrawable')
+			.addEventListener('click', () => this.emitAction('export-drawable'))
 		this.shadowRoot
 			.querySelector('#import')
 			.addEventListener('click', () => this.emitAction('import'))

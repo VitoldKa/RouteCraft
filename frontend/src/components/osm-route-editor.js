@@ -122,9 +122,24 @@ class OSMRouteEditor extends HTMLElement {
 			}
 
 			if (type === 'export') {
-				this.$json.setJSON({ route: this.route, annotations: this.annotations })
+				this.$json.setJSON(this.buildFullExport())
 				this.ui.dirty = false
 				this.ui.ioStatus = { kind: 'ok', text: 'Synchronisé' }
+				this.renderPanel()
+				return
+			}
+
+			if (type === 'export-drawable') {
+				await this.loadCacheFromRouteWayIds()
+				this.syncCacheFromMap()
+				const drawable = this.buildDrawableExport()
+				if (!drawable) {
+					this.renderPanel()
+					return
+				}
+				this.$json.setJSON(drawable)
+				this.ui.dirty = false
+				this.ui.ioStatus = { kind: 'ok', text: 'Export dessin prêt' }
 				this.renderPanel()
 				return
 			}
@@ -502,6 +517,22 @@ class OSMRouteEditor extends HTMLElement {
 			this.$map.setSelectedIndex(this.ui.selectedIndex)
 		})
 
+		this.$map.addEventListener('segment-add-batch', (e) => {
+			const segments = Array.isArray(e.detail?.segments) ? e.detail.segments : []
+			if (segments.length === 0) return
+			const color = this.normalizeSegmentColor(this.ui.lastSegmentColor)
+			for (const rawSegment of segments) {
+				const segment = { ...rawSegment }
+				if (color) segment.color = color
+				this.route.push(segment)
+			}
+			this.ui.lastError = null
+			this.ui.selectedIndex = this.route.length - 1
+			this.renderAll()
+			this.$json.setJSON({ route: this.route, annotations: this.annotations })
+			this.$map.setSelectedIndex(this.ui.selectedIndex)
+		})
+
 		this.$map.addEventListener('segment-update', (e) => {
 			const { index, segment } = e.detail
 			this.route[index] = { ...this.route[index], ...segment }
@@ -645,6 +676,161 @@ class OSMRouteEditor extends HTMLElement {
 		const rounded = Math.round(size)
 		if (rounded < 10 || rounded > 32) return null
 		return rounded
+	}
+
+	buildFullExport() {
+		return {
+			route: this.route.map((seg) => ({ ...seg })),
+			annotations: this.annotations.map((annotation) => ({ ...annotation })),
+		}
+	}
+
+	buildDrawableExport() {
+		const route = this.route.map((seg) => ({ ...seg }))
+		const annotations = this.annotations.map((annotation) => ({ ...annotation }))
+		const primitives = []
+		const missing = []
+
+		route.forEach((seg, idx) => {
+			const latlngs = this.resolveSegmentLatLngs(seg)
+			if (latlngs.length < 2) {
+				missing.push(`segment ${idx + 1} (way ${seg.wayId})`)
+				return
+			}
+			primitives.push({
+				type: 'polyline',
+				id: `segment-${idx + 1}`,
+				segmentIndex: idx,
+				wayId: seg.wayId,
+				fromNode: seg.fromNode,
+				toNode: seg.toNode,
+				color: this.normalizeSegmentColor(seg.color) || '#0060DD',
+				weight: 7,
+				latlngs: latlngs.map(([lat, lon]) => [
+					Number(lat.toFixed(7)),
+					Number(lon.toFixed(7)),
+				]),
+			})
+		})
+
+		annotations.forEach((annotation) => {
+			primitives.push({
+				type: 'label',
+				id: annotation.id,
+				text: annotation.text,
+				lat: Number(annotation.lat),
+				lon: Number(annotation.lon),
+				color:
+					this.normalizeSegmentColor(annotation.color) ||
+					this.normalizeSegmentColor(this.ui?.lastSegmentColor) ||
+					'#0060DD',
+				fontSize: this.normalizeAnnotationFontSize(annotation.fontSize) || 12,
+			})
+		})
+
+		if (missing.length > 0) {
+			this.ui.lastError =
+				'Export dessin incomplet: géométrie introuvable pour ' +
+				missing.slice(0, 6).join(', ')
+			return null
+		}
+
+		this.ui.lastError = null
+		return {
+			format: 'routecraft-drawable-v1',
+			route,
+			annotations,
+			primitives,
+			bounds: this.computeDrawableBounds(primitives),
+		}
+	}
+
+	resolveSegmentLatLngs(seg) {
+		const wayId = Number(seg?.wayId)
+		const fromNode = Number(seg?.fromNode)
+		const toNode = Number(seg?.toNode)
+		const nodeIds = this.cache.wayNodeIds.get(wayId)
+		if (!Array.isArray(nodeIds) || nodeIds.length < 2) return []
+
+		const isClosed =
+			nodeIds.length > 3 && nodeIds[0] === nodeIds[nodeIds.length - 1]
+		let orderedNodeIds = []
+
+		if (!isClosed) {
+			const a = nodeIds.indexOf(fromNode)
+			const b = nodeIds.indexOf(toNode)
+			if (a < 0 || b < 0) return []
+			orderedNodeIds =
+				a <= b ? nodeIds.slice(a, b + 1) : nodeIds.slice(b, a + 1).reverse()
+		} else {
+			const cycleIds = nodeIds.slice(0, -1)
+			const a = cycleIds.indexOf(fromNode)
+			const b = cycleIds.indexOf(toNode)
+			if (a < 0 || b < 0) return []
+
+			const direction =
+				seg?.viaWrap === true ? (a <= b ? -1 : 1) : a <= b ? 1 : -1
+			let index = a
+			let guard = 0
+			orderedNodeIds.push(cycleIds[index])
+			while (index !== b && guard <= cycleIds.length) {
+				index =
+					direction > 0
+						? (index + 1) % cycleIds.length
+						: (index - 1 + cycleIds.length) % cycleIds.length
+				orderedNodeIds.push(cycleIds[index])
+				guard++
+			}
+		}
+
+		const latlngs = []
+		for (const nodeId of orderedNodeIds) {
+			const node = this.cache.nodesById.get(Number(nodeId))
+			if (!node) continue
+			const lat = Number(node.lat)
+			const lon = Number(node.lon)
+			if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+			latlngs.push([lat, lon])
+		}
+		return latlngs
+	}
+
+	computeDrawableBounds(primitives) {
+		let south = Infinity
+		let west = Infinity
+		let north = -Infinity
+		let east = -Infinity
+
+		for (const primitive of primitives) {
+			if (primitive?.type === 'polyline' && Array.isArray(primitive.latlngs)) {
+				for (const point of primitive.latlngs) {
+					const lat = Number(point?.[0])
+					const lon = Number(point?.[1])
+					if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+					south = Math.min(south, lat)
+					west = Math.min(west, lon)
+					north = Math.max(north, lat)
+					east = Math.max(east, lon)
+				}
+			}
+			if (primitive?.type === 'label') {
+				const lat = Number(primitive.lat)
+				const lon = Number(primitive.lon)
+				if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+				south = Math.min(south, lat)
+				west = Math.min(west, lon)
+				north = Math.max(north, lat)
+				east = Math.max(east, lon)
+			}
+		}
+
+		if (!Number.isFinite(south)) return null
+		return {
+			south: Number(south.toFixed(7)),
+			west: Number(west.toFixed(7)),
+			north: Number(north.toFixed(7)),
+			east: Number(east.toFixed(7)),
+		}
 	}
 
 	scheduleJsonSync() {

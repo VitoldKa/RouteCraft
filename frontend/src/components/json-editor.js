@@ -143,6 +143,7 @@ class JsonEditor extends HTMLElement {
 			const fromNode = Number(s?.fromNode)
 			const toNode = Number(s?.toNode)
 			const color = this.normalizeSegmentColor(s?.color)
+			const viaWrap = s?.viaWrap === true
 
 			if (!Number.isInteger(wayId) || wayId <= 0)
 				errors.push(`Segment #${i + 1}: wayId invalide`)
@@ -170,6 +171,7 @@ class JsonEditor extends HTMLElement {
 			) {
 				const seg = { wayId, fromNode, toNode }
 				if (color) seg.color = color
+				if (viaWrap) seg.viaWrap = true
 				out.push(seg)
 			}
 		})

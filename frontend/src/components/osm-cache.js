@@ -7,7 +7,7 @@
 // - bboxes: { key, wayIds: number[], contentTiles: string[], fetchedAt: number }
 
 const DB_NAME = 'osm-spatial-cache'
-const DB_VERSION = 4
+const DB_VERSION = 5
 let _dbPromise = null
 
 function openDB() {
@@ -30,6 +30,12 @@ function openDB() {
 			if (!db.objectStoreNames.contains('bboxes')) {
 				const store = db.createObjectStore('bboxes', { keyPath: 'key' })
 				store.createIndex('fetchedAt', 'fetchedAt')
+			}
+
+			// Way node lists must preserve order and repeated closing nodes.
+			// Older cache versions deduplicated them, which broke closed ways.
+			if (db.objectStoreNames.contains('ways')) {
+				req.transaction?.objectStore('ways').clear()
 			}
 		}
 
@@ -88,6 +94,10 @@ function normalizeIds(ids) {
 	return [...new Set((ids || []).map(Number))].filter(
 		(n) => Number.isInteger(n) && n > 0
 	)
+}
+
+function normalizeWayNodeIds(ids) {
+	return (ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0)
 }
 
 function normalizeStringArray(values) {
@@ -160,7 +170,7 @@ export async function putWays(ways) {
 
 		const row = {
 			id: Number(w.id),
-			nodes: normalizeIds(w.nodes),
+			nodes: normalizeWayNodeIds(w.nodes),
 			tags: w.tags && typeof w.tags === 'object' ? w.tags : {},
 			fetchedAt: Number(w.fetchedAt) || Date.now(),
 		}

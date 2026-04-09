@@ -5,83 +5,33 @@ class OSMRouteViewer extends HTMLElement {
 		super()
 		this.attachShadow({ mode: 'open' })
 		this.route = []
+		this.primitives = []
+		this.annotations = []
+		this.bounds = null
 	}
 
 	connectedCallback() {
 		this.shadowRoot.innerHTML = `
       <style>
-        .wrap { display:flex; height:100vh; width:100vw; }
-        osm-map { flex:1; display:block; min-width:0; }
-        .side {
-          width: 380px;
-          border-left: 1px solid #ddd;
-          background: #fafafa;
-          padding: 12px;
-          box-sizing: border-box;
-          overflow:auto;
-          font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        }
-        h3 { margin: 0 0 10px 0; }
-        .muted { color:#666; font-size: 13px; line-height:1.35; }
-        .pill { display:inline-block; font-size:12px; border:1px solid #e5e5e5; padding:2px 8px; border-radius:999px; background:#fff; }
-        .pill.danger { border-color:#f3c0c0; }
-        .pill.ok { border-color:#cde9cd; }
-        .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:10px; }
-        .card { background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:10px; }
-        .list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
-        .item { background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:8px; }
-        code { background:#fff; border:1px solid #e5e5e5; padding:2px 6px; border-radius:8px; }
-        .kpi { font-size: 18px; font-weight: 700; }
-        .btn { padding: 8px 10px; cursor: pointer; border:1px solid #ddd; border-radius:10px; background:#fff; }
-        .btnRow { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-        pre { white-space:pre-wrap; font-size:12px; background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:8px; }
+        .wrap { height:100vh; width:100vw; }
+        osm-map { display:block; height:100%; width:100%; }
       </style>
 
       <div class="wrap">
         <osm-map></osm-map>
-        <div class="side">
-          <h3>Route Viewer</h3>
-          <div class="muted">Lecture seule : route fournie statiquement en JSON.</div>
-
-          <div class="grid2">
-            <div class="card">
-              <div class="muted"><strong>Statut</strong></div>
-              <div id="status" class="pill">Chargement…</div>
-            </div>
-            <div class="card">
-              <div class="muted"><strong>Distance</strong></div>
-              <div class="kpi" id="dist">—</div>
-              <div class="muted" id="dist2"></div>
-            </div>
-          </div>
-
-          <div class="btnRow">
-            <button class="btn" id="zoomAll">Zoom sur la route</button>
-          </div>
-
-          <div style="margin-top:12px;" class="muted"><strong>Segments</strong></div>
-          <div id="list" class="list"></div>
-
-          <div style="margin-top:12px;" class="muted"><strong>JSON</strong></div>
-          <pre id="raw"></pre>
-        </div>
       </div>
     `
 
 		this.$map = this.shadowRoot.querySelector('osm-map')
-		this.$status = this.shadowRoot.querySelector('#status')
-		this.$list = this.shadowRoot.querySelector('#list')
-		this.$raw = this.shadowRoot.querySelector('#raw')
-		this.$dist = this.shadowRoot.querySelector('#dist')
-		this.$dist2 = this.shadowRoot.querySelector('#dist2')
 
 		// Viewer: pas de pick / édition
-		this.$map.setOptions({ strict: false, autoLoad: false, readOnly: true })
-		this.$map.setSelectedIndex(-1)
-
-		this.shadowRoot.querySelector('#zoomAll').addEventListener('click', () => {
-			this.zoomOnRoute()
+		this.$map.setOptions({
+			strict: false,
+			autoLoad: false,
+			readOnly: true,
+			showToolbox: false,
 		})
+		this.$map.setSelectedIndex(-1)
 
 		this.$map.addEventListener('status', (e) => {
 			const { error } = e.detail || {}
@@ -94,9 +44,8 @@ class OSMRouteViewer extends HTMLElement {
 	}
 
 	setStatus(text, isError = false) {
-		this.$status.textContent = text
-		this.$status.classList.toggle('danger', !!isError)
-		this.$status.classList.toggle('ok', !isError)
+		if (isError) console.error('[viewer]', text)
+		else console.info('[viewer]', text)
 	}
 
 	readStaticJSON() {
@@ -115,17 +64,17 @@ class OSMRouteViewer extends HTMLElement {
 			throw new Error('JSON invalide dans route-json.')
 		}
 
-		const arr = Array.isArray(obj) ? obj : obj.route
-		if (!Array.isArray(arr))
-			throw new Error(
-				'Format attendu: {"route":[...]} ou directement un tableau.'
-			)
+		const arr = Array.isArray(obj) ? obj : Array.isArray(obj?.route) ? obj.route : []
 
 		const route = arr
 			.map((s) => ({
 				wayId: Number(s.wayId),
 				fromNode: Number(s.fromNode),
 				toNode: Number(s.toNode),
+				...(s?.viaWrap === true ? { viaWrap: true } : {}),
+				...(this.normalizeColor(s?.color)
+					? { color: this.normalizeColor(s.color) }
+					: {}),
 			}))
 			.filter(
 				(s) =>
@@ -134,94 +83,148 @@ class OSMRouteViewer extends HTMLElement {
 					Number.isInteger(s.toNode)
 			)
 
-		if (!route.length) throw new Error('Aucun segment valide dans le JSON.')
-		return { obj, route }
+		const annotations = Array.isArray(obj?.annotations)
+			? obj.annotations
+					.map((annotation) => this.normalizeAnnotation(annotation))
+					.filter(Boolean)
+			: []
+
+		const primitives = Array.isArray(obj?.primitives)
+			? obj.primitives
+					.map((primitive) => this.normalizePrimitive(primitive))
+					.filter(Boolean)
+			: []
+
+		const bounds = this.normalizeBounds(obj?.bounds)
+
+		if (!route.length && !primitives.length && !annotations.length) {
+			throw new Error(
+				'Format attendu: {"route":[...]} ou {"route":[...], "primitives":[...]}'
+			)
+		}
+		return { obj, route, annotations, primitives, bounds }
 	}
 
 	async loadStaticJSONAndRender() {
-		const { obj, route } = this.readStaticJSON()
+		const { obj, route, annotations, primitives, bounds } =
+			this.readStaticJSON()
 		this.route = route
+		this.annotations = annotations
+		this.primitives = primitives
+		this.bounds = bounds
 
-		this.$raw.textContent = JSON.stringify(obj, null, 2)
-		this.renderListSkeleton() // liste sans noms/distances tant que cache pas chargé
+		this.$map.setDrawableBounds(this.bounds)
+
+		if (this.primitives.length > 0) {
+			this.$map.setRoute([])
+			this.$map.setAnnotations([])
+			this.$map.setDrawablePrimitives(this.primitives)
+			this.zoomOnRoute()
+			this.setStatus('OK (autonome)')
+			return
+		}
 
 		this.setStatus('Chargement des ways…')
 
-		// 1) charge le cache par IDs
 		await this.$map.loadWaysByIds(this.route.map((s) => s.wayId))
-
-		// 2) affiche l’itinéraire
+		this.$map.setDrawablePrimitives([])
 		this.$map.setRoute(this.route)
-
-		// 3) recalcul distances + noms (tags dispo maintenant)
-		this.renderListWithNamesAndDistances()
-
-		// 4) zoom auto sur toute la route
 		this.zoomOnRoute()
-
 		this.setStatus('OK')
 	}
 
 	zoomOnRoute() {
-		// Important si flex/shadow : resize -> Leaflet recalcul
 		if (this.$map.invalidate) this.$map.invalidate()
-
-		// fit bounds route
+		if (this.primitives.length > 0) {
+			this.$map.fitDrawableContent()
+			return
+		}
 		this.$map.fitRoute(this.route)
 	}
 
-	renderListSkeleton() {
-		this.$list.innerHTML = ''
-		this.route.forEach((seg, i) => {
-			const div = document.createElement('div')
-			div.className = 'item'
-			div.innerHTML = `
-        <div><strong>${i + 1}.</strong> way ${seg.wayId}</div>
-        <div class="muted"><span>from</span> <code>${seg.fromNode}</code> <span>→</span> <code>${seg.toNode}</code></div>
-        <div class="muted">—</div>
-      `
-			this.$list.appendChild(div)
-		})
-		this.$dist.textContent = '—'
-		this.$dist2.textContent = ''
+	normalizeColor(value) {
+		if (typeof value !== 'string') return null
+		const trimmed = value.trim()
+		return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null
 	}
 
-	renderListWithNamesAndDistances() {
-		let total = 0
-
-		this.$list.innerHTML = ''
-		this.route.forEach((seg, i) => {
-			const tags = this.$map.getWayTags ? this.$map.getWayTags(seg.wayId) : {}
-			const name = tags?.name ? tags.name : null
-
-			const d = this.$map.segmentDistanceMeters
-				? this.$map.segmentDistanceMeters(seg)
-				: 0
-			total += d
-
-			const div = document.createElement('div')
-			div.className = 'item'
-			div.innerHTML = `
-        <div><strong>${i + 1}.</strong> ${name ? name : `way ${seg.wayId}`}</div>
-        <div class="muted"><span>way</span> <code>${seg.wayId}</code></div>
-        <div class="muted">
-          <span>from</span> <code>${seg.fromNode}</code> <span>→</span> <code>${seg.toNode}</code>
-        </div>
-        <div class="muted"><strong>${this.formatDistance(d)}</strong></div>
-      `
-			this.$list.appendChild(div)
-		})
-
-		this.$dist.textContent = this.formatDistance(total)
-		this.$dist2.textContent = `${Math.round(total)} m`
+	normalizePrimitive(primitive) {
+		if (primitive?.type === 'polyline') {
+			const latlngs = Array.isArray(primitive.latlngs)
+				? primitive.latlngs
+						.map((point) => [Number(point?.[0]), Number(point?.[1])])
+						.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+				: []
+			if (latlngs.length < 2) return null
+			return {
+				type: 'polyline',
+				id: typeof primitive.id === 'string' ? primitive.id : null,
+				segmentIndex: Number.isInteger(primitive.segmentIndex)
+					? primitive.segmentIndex
+					: null,
+				color: this.normalizeColor(primitive.color) || '#0060DD',
+				weight: Number.isFinite(Number(primitive.weight))
+					? Number(primitive.weight)
+					: 7,
+				latlngs,
+			}
+		}
+		if (primitive?.type === 'label') {
+			const text =
+				typeof primitive.text === 'string' ? primitive.text.trimEnd() : ''
+			const lat = Number(primitive.lat)
+			const lon = Number(primitive.lon)
+			if (!text.trim() || !Number.isFinite(lat) || !Number.isFinite(lon))
+				return null
+			return {
+				type: 'label',
+				id: typeof primitive.id === 'string' ? primitive.id : null,
+				text,
+				lat,
+				lon,
+				color: this.normalizeColor(primitive.color) || '#0060DD',
+				fontSize: Number.isFinite(Number(primitive.fontSize))
+					? Math.round(Number(primitive.fontSize))
+					: 12,
+			}
+		}
+		return null
 	}
 
-	formatDistance(m) {
-		if (!isFinite(m) || m <= 0) return '0 m'
-		if (m < 1000) return `${Math.round(m)} m`
-		const km = m / 1000
-		// 1 décimale si < 10km, sinon 0
-		return km < 10 ? `${km.toFixed(1)} km` : `${km.toFixed(0)} km`
+	normalizeAnnotation(annotation) {
+		const text =
+			typeof annotation?.text === 'string' ? annotation.text.trimEnd() : ''
+		const lat = Number(annotation?.lat)
+		const lon = Number(annotation?.lon)
+		if (!text.trim() || !Number.isFinite(lat) || !Number.isFinite(lon))
+			return null
+		return {
+			id: typeof annotation?.id === 'string' ? annotation.id : null,
+			text,
+			lat,
+			lon,
+			color: this.normalizeColor(annotation?.color) || '#0060DD',
+			fontSize: Number.isFinite(Number(annotation?.fontSize))
+				? Math.round(Number(annotation.fontSize))
+				: 12,
+		}
+	}
+
+	normalizeBounds(bounds) {
+		if (!bounds || typeof bounds !== 'object') return null
+		const south = Number(bounds.south)
+		const west = Number(bounds.west)
+		const north = Number(bounds.north)
+		const east = Number(bounds.east)
+		if (
+			!Number.isFinite(south) ||
+			!Number.isFinite(west) ||
+			!Number.isFinite(north) ||
+			!Number.isFinite(east)
+		) {
+			return null
+		}
+		return { south, west, north, east }
 	}
 }
 

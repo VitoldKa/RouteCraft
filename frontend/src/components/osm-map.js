@@ -21,6 +21,7 @@ class OSMMap extends HTMLElement {
 			strict: true,
 			autoLoad: true,
 			readOnly: false,
+			showToolbox: true,
 			interactionMode: 'create',
 			debugShowWays: false,
 			baseMap: 'roadmap',
@@ -31,6 +32,8 @@ class OSMMap extends HTMLElement {
 		}
 
 		this.annotations = []
+		this.drawablePrimitives = []
+		this.drawableBounds = null
 		this.selectedIndex = -1
 		this.invalidSeg = new Map()
 		this.invalidWayIds = new Set()
@@ -54,6 +57,7 @@ class OSMMap extends HTMLElement {
 		this.vectorRenderer = null
 		this.baseMapLayers = null
 		this.debugWaysLayer = null
+		this.drawableLayer = null
 		this.hoverLayer = null
 		this.selectedLayer = null
 		this.editLayer = null
@@ -73,10 +77,14 @@ class OSMMap extends HTMLElement {
 		// TTL IndexedDB
 		this.BBOX_MAX_AGE_MS = 30 * 24 * 3600 * 1000 // 30 jours
 		this.WAY_MAX_AGE_MS = 30 * 24 * 3600 * 1000 // 30 jours
+		this.BBOX_FETCH_CONCURRENCY = 8
+		this.CONTENT_TILE_FETCH_CONCURRENCY = 6
 
 		this.loading = false
 		this.lastLoadKey = ''
 		this.pendingLoadKey = ''
+		this.bboxFetchesInFlight = new Map()
+		this.contentTileFetchesInFlight = new Map()
 
 		// Spatial index (grid in pixels)
 		this.spatial = {
@@ -226,6 +234,7 @@ class OSMMap extends HTMLElement {
 		this._ro.observe(this)
 
 		this.debugWaysLayer = L.layerGroup().addTo(this.map)
+		this.drawableLayer = L.layerGroup().addTo(this.map)
 		this.hoverLayer = L.layerGroup().addTo(this.map)
 		this.selectedLayer = L.layerGroup().addTo(this.map)
 		this.editLayer = L.layerGroup().addTo(this.map)
@@ -418,6 +427,15 @@ class OSMMap extends HTMLElement {
 		this.updateAnnotationEditor()
 	}
 
+	setDrawablePrimitives(primitives) {
+		this.drawablePrimitives = Array.isArray(primitives) ? primitives : []
+		this.redrawDrawablePrimitives()
+	}
+
+	setDrawableBounds(bounds) {
+		this.drawableBounds = this.normalizeBoundsObject(bounds)
+	}
+
 	setSelectedIndex(i) {
 		this.selectedIndex = Number(i ?? -1)
 		this.redrawSelected()
@@ -455,6 +473,7 @@ class OSMMap extends HTMLElement {
 		this.wayToContentTiles = new Map()
 		this.clearHover()
 		this.buildSpatialIndex()
+		this.redrawDrawablePrimitives()
 		this.redrawDebugWays()
 		this.redrawSelected()
 	}
@@ -463,6 +482,7 @@ class OSMMap extends HTMLElement {
 		if (!this.map) return
 		requestAnimationFrame(() => this.map.invalidateSize())
 		setTimeout(() => this.map.invalidateSize(), 0)
+		this.redrawDrawablePrimitives()
 	}
 
 	fitRoute(route) {
@@ -476,6 +496,17 @@ class OSMMap extends HTMLElement {
 		if (pts.length >= 2) {
 			this.map.fitBounds(L.latLngBounds(pts).pad(0.3))
 		}
+	}
+
+	fitDrawableContent() {
+		const bounds = this.drawableBounds || this.computePrimitiveBounds()
+		if (!bounds || !this.map) return
+		this.map.fitBounds(
+			L.latLngBounds(
+				[bounds.south, bounds.west],
+				[bounds.north, bounds.east]
+			).pad(0.12)
+		)
 	}
 
 	// ---------- Validation ----------
@@ -714,7 +745,10 @@ class OSMMap extends HTMLElement {
 			const contentTilesToFetch = new Set()
 
 			// 1) Lire les bbox visibles depuis IndexedDB, sinon depuis fichiers statiques
-			for (const key of bboxKeys) {
+			const bboxRows = await this.mapWithConcurrency(
+				bboxKeys,
+				this.BBOX_FETCH_CONCURRENCY,
+				async (key) => {
 				let row = null
 
 				try {
@@ -731,8 +765,12 @@ class OSMMap extends HTMLElement {
 					row = await this.fetchAndPersistBBoxIndex(key)
 				}
 
-				if (!row) continue
+					return row
+				}
+			)
 
+			for (const row of bboxRows) {
+				if (!row) continue
 				for (const wayId of row.wayIds || []) {
 					allWayIds.add(wayId)
 				}
@@ -775,9 +813,11 @@ class OSMMap extends HTMLElement {
 
 			// 3) Si des ways manquent, charger les content tiles associées
 			if (missingWayIds.length && contentTilesToFetch.size) {
-				for (const tileKey of contentTilesToFetch) {
-					await this.fetchAndPersistContentTile(tileKey)
-				}
+				await this.mapWithConcurrency(
+					[...contentTilesToFetch],
+					this.CONTENT_TILE_FETCH_CONCURRENCY,
+					(tileKey) => this.fetchAndPersistContentTile(tileKey)
+				)
 			}
 
 			this.afterDataChanged()
@@ -841,9 +881,11 @@ class OSMMap extends HTMLElement {
 				}
 			}
 
-			for (const tileKey of tileKeys) {
-				await this.fetchAndPersistContentTile(tileKey)
-			}
+			await this.mapWithConcurrency(
+				[...tileKeys],
+				this.CONTENT_TILE_FETCH_CONCURRENCY,
+				(tileKey) => this.fetchAndPersistContentTile(tileKey)
+			)
 
 			// 3) relire après hydratation
 			try {
@@ -866,6 +908,11 @@ class OSMMap extends HTMLElement {
 	}
 
 	async fetchAndPersistBBoxIndex(key) {
+		if (this.bboxFetchesInFlight.has(key)) {
+			return this.bboxFetchesInFlight.get(key)
+		}
+
+		const task = (async () => {
 		try {
 			const data = await this.fetchBBoxIndex(key)
 			const rawContentTiles = Array.isArray(data.contentTiles) ? data.contentTiles : []
@@ -935,6 +982,14 @@ class OSMMap extends HTMLElement {
 			})
 			return null
 		}
+		})()
+
+		this.bboxFetchesInFlight.set(key, task)
+		try {
+			return await task
+		} finally {
+			this.bboxFetchesInFlight.delete(key)
+		}
 	}
 
 	async fetchAndPersistContentTile(tileKey) {
@@ -944,6 +999,11 @@ class OSMMap extends HTMLElement {
 			return
 		}
 
+		if (this.contentTileFetchesInFlight.has(normalizedTileKey)) {
+			return this.contentTileFetchesInFlight.get(normalizedTileKey)
+		}
+
+		const task = (async () => {
 		let tile
 		try {
 			tile = await this.fetchContentTile(normalizedTileKey)
@@ -971,15 +1031,25 @@ class OSMMap extends HTMLElement {
 		}
 
 		try {
-			await putWays(
-				ways.map((w) => ({
-					...w,
-					fetchedAt: tile.fetchedAt || Date.now(),
-				}))
-			)
-			await putNodes(nodes)
+			await Promise.all([
+				putWays(
+					ways.map((w) => ({
+						...w,
+						fetchedAt: tile.fetchedAt || Date.now(),
+					}))
+				),
+				putNodes(nodes),
+			])
 		} catch {
 			// ignore
+		}
+		})()
+
+		this.contentTileFetchesInFlight.set(normalizedTileKey, task)
+		try {
+			return await task
+		} finally {
+			this.contentTileFetchesInFlight.delete(normalizedTileKey)
 		}
 	}
 
@@ -1100,6 +1170,7 @@ class OSMMap extends HTMLElement {
 		this.recomputeIntersections?.()
 		this.spatial.zoom = null
 		this.buildSpatialIndex?.()
+		this.redrawDrawablePrimitives?.()
 		this.redrawDebugWays?.()
 		this.clearHover?.()
 		this.redrawSelected?.()
@@ -1388,6 +1459,8 @@ class OSMMap extends HTMLElement {
 	}
 
 	updateToolbox() {
+		if (this.$toolbox)
+			this.$toolbox.style.display = this.options.showToolbox ? '' : 'none'
 		this.$toolbox?.setState({
 			interactionMode: this.options.interactionMode,
 			debugShowWays: !!this.options.debugShowWays,
@@ -1473,6 +1546,133 @@ class OSMMap extends HTMLElement {
 				y: point.y - 18,
 			},
 		})
+	}
+
+	redrawDrawablePrimitives() {
+		this.drawableLayer?.clearLayers()
+		if (!this.map || !this.drawableLayer) return
+
+		for (const primitive of this.drawablePrimitives || []) {
+			if (primitive?.type === 'polyline') {
+				const latlngs = this.normalizePrimitiveLatLngs(primitive.latlngs)
+				if (latlngs.length < 2) continue
+				L.polyline(latlngs, {
+					color: this.normalizeColor(primitive.color) || '#0060DD',
+					weight: Number.isFinite(Number(primitive.weight))
+						? Math.max(1, Number(primitive.weight))
+						: 7,
+					opacity: 0.9,
+					interactive: false,
+					bubblingMouseEvents: false,
+					renderer: this.vectorRenderer,
+				}).addTo(this.drawableLayer)
+				this.addSegmentDirectionArrow(latlngs, {
+					color: this.normalizeColor(primitive.color) || '#0060DD',
+					isSelected: false,
+					targetLayer: this.drawableLayer,
+				})
+				continue
+			}
+
+			if (primitive?.type === 'label') {
+				const lat = Number(primitive.lat)
+				const lon = Number(primitive.lon)
+				const text =
+					typeof primitive.text === 'string' ? primitive.text.trimEnd() : ''
+				if (!Number.isFinite(lat) || !Number.isFinite(lon) || !text.trim()) continue
+				const color = this.normalizeColor(primitive.color) || '#0060DD'
+				const fontSize = this.normalizeAnnotationFontSize(primitive.fontSize) || 12
+				L.marker([lat, lon], {
+					icon: L.divIcon({
+						className: 'drawable-label',
+						html: `
+							<div style="
+								display:inline-block;
+								padding:${Math.max(4, Math.round(fontSize * 0.3))}px ${Math.max(6, Math.round(fontSize * 0.5))}px;
+								border-radius:${Math.max(6, Math.round(fontSize * 0.45))}px;
+								background:rgba(255,255,255,0.92);
+								border:1px solid rgba(17,24,39,0.12);
+								color:${color};
+								font-size:${fontSize}px;
+								font-weight:700;
+								line-height:1.2;
+								white-space:pre;
+								box-shadow:0 4px 10px rgba(15,23,42,0.14);
+							">${this.escapeHTML(text)}</div>
+						`,
+					}),
+					interactive: false,
+					keyboard: false,
+					bubblingMouseEvents: false,
+				}).addTo(this.drawableLayer)
+			}
+		}
+	}
+
+	normalizePrimitiveLatLngs(latlngs) {
+		if (!Array.isArray(latlngs)) return []
+		return latlngs
+			.map((point) => {
+				const lat = Number(point?.[0])
+				const lon = Number(point?.[1])
+				return Number.isFinite(lat) && Number.isFinite(lon) ? [lat, lon] : null
+			})
+			.filter(Boolean)
+	}
+
+	normalizeBoundsObject(bounds) {
+		if (!bounds || typeof bounds !== 'object') return null
+		const south = Number(bounds.south)
+		const west = Number(bounds.west)
+		const north = Number(bounds.north)
+		const east = Number(bounds.east)
+		if (
+			!Number.isFinite(south) ||
+			!Number.isFinite(west) ||
+			!Number.isFinite(north) ||
+			!Number.isFinite(east)
+		) {
+			return null
+		}
+		return { south, west, north, east }
+	}
+
+	computePrimitiveBounds() {
+		let south = Infinity
+		let west = Infinity
+		let north = -Infinity
+		let east = -Infinity
+
+		for (const primitive of this.drawablePrimitives || []) {
+			if (primitive?.type === 'polyline') {
+				for (const point of this.normalizePrimitiveLatLngs(primitive.latlngs)) {
+					south = Math.min(south, point[0])
+					west = Math.min(west, point[1])
+					north = Math.max(north, point[0])
+					east = Math.max(east, point[1])
+				}
+			}
+			if (primitive?.type === 'label') {
+				const lat = Number(primitive.lat)
+				const lon = Number(primitive.lon)
+				if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+				south = Math.min(south, lat)
+				west = Math.min(west, lon)
+				north = Math.max(north, lat)
+				east = Math.max(east, lon)
+			}
+		}
+
+		if (!Number.isFinite(south)) return null
+		return { south, west, north, east }
+	}
+
+	escapeHTML(value) {
+		return String(value)
+			.replaceAll('&', '&amp;')
+			.replaceAll('<', '&lt;')
+			.replaceAll('>', '&gt;')
+			.replaceAll('"', '&quot;')
 	}
 
 	redrawDebugWays() {
@@ -1621,13 +1821,20 @@ class OSMMap extends HTMLElement {
 		if (!nodeId) return
 
 		if (!this.pick) {
-			this.pick = { wayId, startNode: nodeId }
+			this.pick = {
+				wayId,
+				startNode: nodeId,
+				startEdgeIndex: this.nearestSegmentIndexOnWay(e.latlng, wayId),
+			}
 			const n = this.nodesById.get(nodeId)
 			this.pickLayer.clearLayers()
 			const matchHint =
 				this.hoverMatch?.reasons?.length > 0
 					? ` Best match: ${this.hoverMatch.reasons.join(' + ')}.`
 					: ''
+			const cycleHint = this.isClosedWay(wayId)
+				? ' Alt + clique le 2e point pour forcer l’autre côté du cycle.'
+				: ''
 
 			L.circleMarker([n.lat, n.lon], {
 				radius: 7,
@@ -1640,13 +1847,35 @@ class OSMMap extends HTMLElement {
 				.addTo(this.pickLayer)
 
 			this.emitStatus({
-				pickStatus: `Départ: way ${wayId}, node ${nodeId}. Clique un 2e point sur la même way.${matchHint}`,
+				pickStatus: `Départ: way ${wayId}, node ${nodeId}. Clique un 2e point sur la même way.${matchHint}${cycleHint}`,
 				error: null,
 			})
 			return
 		}
 
 		if (this.pick.wayId !== wayId) {
+			const roundaboutSegments = this.buildRoundaboutSegments(
+				this.pick.wayId,
+				this.pick.startNode,
+				wayId,
+				nodeId
+			)
+			if (roundaboutSegments && roundaboutSegments.length > 0) {
+				this.dispatchEvent(
+					new CustomEvent('segment-add-batch', {
+						detail: { segments: roundaboutSegments },
+						bubbles: true,
+						composed: true,
+					})
+				)
+
+				this.clearSelection()
+				this.emitStatus({
+					pickStatus: `Segments ajoutés via roundabout: ${roundaboutSegments.length}`,
+					error: null,
+				})
+				return
+			}
 			this.clearSelection()
 			this.onMapClick(e)
 			return
@@ -1661,11 +1890,16 @@ class OSMMap extends HTMLElement {
 
 		let fromNode = this.pick.startNode
 		let toNode = nodeId
+		let startEdgeIndex = this.pick.startEdgeIndex
+		let endEdgeIndex = this.nearestSegmentIndexOnWay(e.latlng, wayId)
 
 		if (this.options.strict && this.route.length > 0) {
 			const prev = this.route[this.route.length - 1]
 			if (prev.toNode !== fromNode) {
-				if (prev.toNode === toNode) [fromNode, toNode] = [toNode, fromNode]
+				if (prev.toNode === toNode) {
+					;[fromNode, toNode] = [toNode, fromNode]
+					;[startEdgeIndex, endEdgeIndex] = [endEdgeIndex, startEdgeIndex]
+				}
 				else {
 					this.emitStatus({
 						error: `Continuité stricte: le nouveau tronçon doit démarrer au node ${prev.toNode}.`,
@@ -1675,7 +1909,16 @@ class OSMMap extends HTMLElement {
 			}
 		}
 
-		const latlngs = this.sliceWayByNodes(wayId, fromNode, toNode)
+		const viaWrap = this.determineClosedWayWrapChoice(
+			wayId,
+			fromNode,
+			toNode,
+			startEdgeIndex,
+			endEdgeIndex,
+			!!e.originalEvent?.altKey
+		)
+
+		const latlngs = this.sliceWayByNodes(wayId, fromNode, toNode, viaWrap)
 		if (latlngs.length < 2) {
 			this.emitStatus({
 				error:
@@ -1686,7 +1929,14 @@ class OSMMap extends HTMLElement {
 
 		this.dispatchEvent(
 			new CustomEvent('segment-add', {
-				detail: { segment: { wayId, fromNode, toNode } },
+				detail: {
+					segment: {
+						wayId,
+						fromNode,
+						toNode,
+						...(viaWrap ? { viaWrap: true } : {}),
+					},
+				},
 				bubbles: true,
 				composed: true,
 			})
@@ -1760,7 +2010,12 @@ class OSMMap extends HTMLElement {
 		this.editLines.clear()
 
 		this.route.forEach((seg, idx) => {
-			const latlngs = this.sliceWayByNodes(seg.wayId, seg.fromNode, seg.toNode)
+			const latlngs = this.sliceWayByNodes(
+				seg.wayId,
+				seg.fromNode,
+				seg.toNode,
+				!!seg.viaWrap
+			)
 			if (latlngs.length < 2) return
 
 			const isSelected = idx === this.selectedIndex
@@ -1830,7 +2085,10 @@ class OSMMap extends HTMLElement {
 		})
 	}
 
-	addSegmentDirectionArrow(latlngs, { color, isSelected } = {}) {
+	addSegmentDirectionArrow(
+		latlngs,
+		{ color, isSelected, targetLayer = this.selectedLayer } = {}
+	) {
 		const arrowPlacement = this.getSegmentDirectionPlacement(latlngs)
 		if (!arrowPlacement) return
 
@@ -1843,7 +2101,7 @@ class OSMMap extends HTMLElement {
 			interactive: false,
 			keyboard: false,
 			bubblingMouseEvents: false,
-		}).addTo(this.selectedLayer)
+		}).addTo(targetLayer)
 	}
 
 	getSegmentDirectionPlacement(latlngs) {
@@ -1946,7 +2204,12 @@ class OSMMap extends HTMLElement {
 		if (which === 'start') tmp.fromNode = snappedNode
 		else tmp.toNode = snappedNode
 
-		const latlngs = this.sliceWayByNodes(tmp.wayId, tmp.fromNode, tmp.toNode)
+		const latlngs = this.sliceWayByNodes(
+			tmp.wayId,
+			tmp.fromNode,
+			tmp.toNode,
+			!!tmp.viaWrap
+		)
 		if (latlngs.length < 2) return
 
 		const line = this.editLines.get(idx)
@@ -2023,16 +2286,226 @@ class OSMMap extends HTMLElement {
 		return best
 	}
 
-	sliceWayByNodes(wayId, fromNode, toNode) {
-		const ids = this.wayNodeIds.get(wayId)
-		if (!ids) return []
+	isClosedWay(wayId) {
+		const ids = this.wayNodeIds.get(Number(wayId))
+		return Array.isArray(ids) && ids.length > 3 && ids[0] === ids[ids.length - 1]
+	}
 
-		const a = ids.indexOf(fromNode)
-		const b = ids.indexOf(toNode)
+	nearestSegmentIndexOnWay(latlng, wayId) {
+		const ids = this.wayNodeIds.get(Number(wayId))
+		if (!Array.isArray(ids) || ids.length < 2) return null
+
+		let bestIndex = null
+		let bestDistance = Infinity
+		for (let i = 0; i < ids.length - 1; i++) {
+			const a = this.nodesById.get(ids[i])
+			const b = this.nodesById.get(ids[i + 1])
+			if (!a || !b) continue
+			const d = this.pointToSegmentDistanceMeters(
+				latlng,
+				L.latLng(a.lat, a.lon),
+				L.latLng(b.lat, b.lon)
+			)
+			if (d < bestDistance) {
+				bestDistance = d
+				bestIndex = i
+			}
+		}
+		return bestIndex
+	}
+
+	walkClosedWayTraversal(cycleIds, startIndex, endIndex, direction) {
+		const nodeIds = []
+		const edgeIndexes = []
+		const n = cycleIds.length
+		let index = startIndex
+		let guard = 0
+
+		nodeIds.push(cycleIds[index])
+		while (index !== endIndex && guard <= n) {
+			if (direction > 0) {
+				edgeIndexes.push(index)
+				index = (index + 1) % n
+			} else {
+				edgeIndexes.push((index - 1 + n) % n)
+				index = (index - 1 + n) % n
+			}
+			nodeIds.push(cycleIds[index])
+			guard++
+		}
+
+		return { nodeIds, edgeIndexes }
+	}
+
+	getWayTraversalCandidates(wayId, fromNode, toNode) {
+		const ids = this.wayNodeIds.get(Number(wayId))
+		if (!Array.isArray(ids) || ids.length < 2) return []
+
+		const isClosed = ids.length > 3 && ids[0] === ids[ids.length - 1]
+		if (!isClosed) {
+			const a = ids.indexOf(fromNode)
+			const b = ids.indexOf(toNode)
+			if (a < 0 || b < 0) return []
+			return [
+				{
+					viaWrap: false,
+					nodeIds: a <= b ? ids.slice(a, b + 1) : ids.slice(b, a + 1).reverse(),
+					edgeIndexes: [],
+				},
+			]
+		}
+
+		const cycleIds = ids.slice(0, -1)
+		const a = cycleIds.indexOf(fromNode)
+		const b = cycleIds.indexOf(toNode)
 		if (a < 0 || b < 0) return []
 
-		const orderedNodeIds =
-			a <= b ? ids.slice(a, b + 1) : ids.slice(b, a + 1).reverse()
+		const directDirection = a <= b ? 1 : -1
+		return [
+			{
+				viaWrap: false,
+				...this.walkClosedWayTraversal(cycleIds, a, b, directDirection),
+			},
+			{
+				viaWrap: true,
+				...this.walkClosedWayTraversal(cycleIds, a, b, -directDirection),
+			},
+		]
+	}
+
+	getWayTraversal(wayId, fromNode, toNode, viaWrap = false) {
+		const candidates = this.getWayTraversalCandidates(wayId, fromNode, toNode)
+		if (candidates.length === 0) return null
+		return (
+			candidates.find((candidate) => !!candidate.viaWrap === !!viaWrap) ||
+			candidates[0]
+		)
+	}
+
+	determineClosedWayWrapChoice(
+		wayId,
+		fromNode,
+		toNode,
+		startEdgeIndex,
+		endEdgeIndex,
+		forceAlternate = false
+	) {
+		const candidates = this.getWayTraversalCandidates(wayId, fromNode, toNode)
+		if (candidates.length < 2) return false
+		if (forceAlternate) return true
+
+		let best = candidates[0]
+		let bestScore = -Infinity
+		for (const candidate of candidates) {
+			let score = 0
+			if (
+				Number.isInteger(startEdgeIndex) &&
+				candidate.edgeIndexes.includes(startEdgeIndex)
+			)
+				score += 2
+			if (
+				Number.isInteger(endEdgeIndex) &&
+				candidate.edgeIndexes.includes(endEdgeIndex)
+			)
+				score += 2
+			score -= candidate.edgeIndexes.length * 0.001
+			if (score > bestScore) {
+				best = candidate
+				bestScore = score
+			}
+		}
+
+		return !!best?.viaWrap
+	}
+
+	isRoundaboutWay(wayId) {
+		const tags = this.getWayTags(wayId)
+		return tags?.junction === 'roundabout'
+	}
+
+	buildRoundaboutSegments(startWayId, startNode, endWayId, endNode) {
+		if (
+			!this.isRoundaboutWay(startWayId) ||
+			!this.isRoundaboutWay(endWayId) ||
+			!Number.isInteger(Number(startNode)) ||
+			!Number.isInteger(Number(endNode))
+		) {
+			return null
+		}
+
+		const adjacency = new Map()
+		for (const [candidateWayId, nodeIds] of this.wayNodeIds.entries()) {
+			if (!this.isRoundaboutWay(candidateWayId)) continue
+			if (!Array.isArray(nodeIds) || nodeIds.length < 2) continue
+			for (let i = 0; i < nodeIds.length - 1; i++) {
+				const from = Number(nodeIds[i])
+				const to = Number(nodeIds[i + 1])
+				if (!Number.isInteger(from) || !Number.isInteger(to)) continue
+				let list = adjacency.get(from)
+				if (!list) {
+					list = []
+					adjacency.set(from, list)
+				}
+				list.push({ toNode: to, wayId: Number(candidateWayId) })
+			}
+		}
+
+		const queue = [Number(startNode)]
+		const visited = new Set(queue)
+		const previous = new Map()
+		let found = false
+
+		while (queue.length > 0 && !found) {
+			const current = queue.shift()
+			const edges = adjacency.get(current) || []
+			for (const edge of edges) {
+				if (visited.has(edge.toNode)) continue
+				visited.add(edge.toNode)
+				previous.set(edge.toNode, {
+					prevNode: current,
+					wayId: edge.wayId,
+				})
+				if (edge.toNode === Number(endNode)) {
+					found = true
+					break
+				}
+				queue.push(edge.toNode)
+			}
+		}
+
+		if (!found) return null
+
+		const edgePath = []
+		let cursor = Number(endNode)
+		while (cursor !== Number(startNode)) {
+			const step = previous.get(cursor)
+			if (!step) return null
+			edgePath.push({
+				wayId: step.wayId,
+				fromNode: step.prevNode,
+				toNode: cursor,
+			})
+			cursor = step.prevNode
+		}
+		edgePath.reverse()
+
+		const segments = []
+		for (const edge of edgePath) {
+			const last = segments[segments.length - 1]
+			if (last && last.wayId === edge.wayId && last.toNode === edge.fromNode) {
+				last.toNode = edge.toNode
+			} else {
+				segments.push({ ...edge })
+			}
+		}
+
+		return segments.length > 0 ? segments : null
+	}
+
+	sliceWayByNodes(wayId, fromNode, toNode, viaWrap = false) {
+		const traversal = this.getWayTraversal(wayId, fromNode, toNode, viaWrap)
+		const orderedNodeIds = traversal?.nodeIds || []
+		if (orderedNodeIds.length < 2) return []
 
 		const latlngs = []
 		for (const nid of orderedNodeIds) {
@@ -2184,6 +2657,30 @@ class OSMMap extends HTMLElement {
 			clearTimeout(t)
 			t = setTimeout(() => fn(...args), ms)
 		}
+	}
+
+	async mapWithConcurrency(items, limit, iteratee) {
+		const values = Array.isArray(items) ? items : []
+		if (values.length === 0) return []
+		const concurrency = Math.max(1, Number(limit) || 1)
+		const results = new Array(values.length)
+		let cursor = 0
+
+		const worker = async () => {
+			while (true) {
+				const index = cursor++
+				if (index >= values.length) return
+				results[index] = await iteratee(values[index], index)
+			}
+		}
+
+		await Promise.all(
+			Array.from(
+				{ length: Math.min(concurrency, values.length) },
+				() => worker()
+			)
+		)
+		return results
 	}
 
 	spatialLog(level, message, details = {}) {
@@ -2372,7 +2869,12 @@ class OSMMap extends HTMLElement {
 	}
 
 	segmentDistanceMeters(seg) {
-		const latlngs = this.sliceWayByNodes(seg.wayId, seg.fromNode, seg.toNode)
+		const latlngs = this.sliceWayByNodes(
+			seg.wayId,
+			seg.fromNode,
+			seg.toNode,
+			!!seg.viaWrap
+		)
 		if (!latlngs || latlngs.length < 2) return 0
 
 		let sum = 0
