@@ -1952,18 +1952,25 @@ class OSMMap extends HTMLElement {
 		let endEdgeIndex = this.nearestSegmentIndexOnWay(e.latlng, wayId)
 
 		if (this.options.strict && this.route.length > 0) {
-			const prev = this.route[this.route.length - 1]
-			if (prev.toNode !== fromNode) {
-				if (prev.toNode === toNode) {
-					;[fromNode, toNode] = [toNode, fromNode]
-					;[startEdgeIndex, endEdgeIndex] = [endEdgeIndex, startEdgeIndex]
-				}
-				else {
-					this.emitStatus({
-						error: `Continuité stricte: le nouveau tronçon doit démarrer au node ${prev.toNode}.`,
-					})
-					return
-				}
+			const { head, tail } = this.getRouteExtensionNodes()
+			const appendKeep = tail != null && tail === fromNode
+			const appendSwap = tail != null && tail === toNode
+			const prependKeep = head != null && head === toNode
+			const prependSwap = head != null && head === fromNode
+
+			if (appendKeep || prependKeep) {
+				// Keep requested orientation.
+			} else if (appendSwap || prependSwap) {
+				;[fromNode, toNode] = [toNode, fromNode]
+				;[startEdgeIndex, endEdgeIndex] = [endEdgeIndex, startEdgeIndex]
+			} else {
+				const expected = [tail, head]
+					.filter((value) => Number.isInteger(value))
+					.join(' or ')
+				this.emitStatus({
+					error: `Continuité stricte: le nouveau tronçon doit se connecter au node ${expected}.`,
+				})
+				return
 			}
 		}
 
@@ -2024,13 +2031,22 @@ class OSMMap extends HTMLElement {
 		this.clearSelection?.()
 
 		if (this.options.strict && this.route.length > 0) {
-			const prev = this.route[this.route.length - 1]
-			if (prev.toNode === toNode) {
+			const { head, tail } = this.getRouteExtensionNodes()
+			const appendKeep = tail != null && tail === fromNode
+			const appendSwap = tail != null && tail === toNode
+			const prependKeep = head != null && head === toNode
+			const prependSwap = head != null && head === fromNode
+
+			if (appendKeep || prependKeep) {
+				// Keep requested orientation.
+			} else if (appendSwap || prependSwap) {
 				;[fromNode, toNode] = [toNode, fromNode]
-			}
-			if (prev.toNode !== fromNode) {
+			} else {
+				const expected = [tail, head]
+					.filter((value) => Number.isInteger(value))
+					.join(' or ')
 				this.emitStatus?.({
-					error: `Continuité stricte: la way entière doit démarrer au node ${prev.toNode}.`,
+					error: `Continuité stricte: la way entière doit se connecter au node ${expected}.`,
 				})
 				return
 			}
@@ -2825,11 +2841,27 @@ class OSMMap extends HTMLElement {
 		return this.normalizeColor(seg?.color) || '#0060DD'
 	}
 
-	getExpectedContinuationNodeId() {
-		if (!this.options.strict || this.route.length === 0) return null
-		const prev = this.route[this.route.length - 1]
-		const nodeId = Number(prev?.toNode)
-		return Number.isInteger(nodeId) && nodeId > 0 ? nodeId : null
+	getRouteExtensionNodes() {
+		if (!Array.isArray(this.route) || this.route.length === 0) {
+			return { head: null, tail: null }
+		}
+		const first = this.route[0]
+		const last = this.route[this.route.length - 1]
+		const head = Number(first?.fromNode)
+		const tail = Number(last?.toNode)
+		return {
+			head: Number.isInteger(head) && head > 0 ? head : null,
+			tail: Number.isInteger(tail) && tail > 0 ? tail : null,
+		}
+	}
+
+	getExpectedContinuationNodeIds() {
+		if (!this.options.strict || this.route.length === 0) return []
+		const { head, tail } = this.getRouteExtensionNodes()
+		return [tail, head].filter(
+			(nodeId, index, arr) =>
+				Number.isInteger(nodeId) && nodeId > 0 && arr.indexOf(nodeId) === index
+		)
 	}
 
 	wayContainsNode(wayId, nodeId) {
@@ -2865,7 +2897,7 @@ class OSMMap extends HTMLElement {
 	}
 
 	rankWayCandidates(latlng, wayIds = []) {
-		const expectedNodeId = this.getExpectedContinuationNodeId()
+		const expectedNodeIds = this.getExpectedContinuationNodeIds()
 		const zoom = this.map?.getZoom?.() ?? 14
 		const highZoom = zoom >= 21
 		const prelim = []
@@ -2888,19 +2920,21 @@ class OSMMap extends HTMLElement {
 			if (!Number.isFinite(distance)) continue
 			const nearestNodeId = this.nearestNodeIdOnWay(latlng, wayId)
 			const tags = this.getWayTags(wayId)
-			const containsExpected = this.wayContainsNode(wayId, expectedNodeId)
+			const matchedExpectedNodeId =
+				expectedNodeIds.find((nodeId) => this.wayContainsNode(wayId, nodeId)) || null
+			const containsExpected = matchedExpectedNodeId != null
 			const reasons = []
 			let score = -(pixelDistance * 8) - distance
 
 			if (containsExpected) {
 				score += 40
-				reasons.push(`continuity via node ${expectedNodeId}`)
+				reasons.push(`continuity via node ${matchedExpectedNodeId}`)
 			}
 
 			if (
 				containsExpected &&
 				nearestNodeId &&
-				Number(nearestNodeId) !== Number(expectedNodeId)
+				Number(nearestNodeId) !== Number(matchedExpectedNodeId)
 			) {
 				score += 5
 				reasons.push('forward continuation')
