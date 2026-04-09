@@ -91,8 +91,10 @@ class OSMMap extends HTMLElement {
 			enabled: true,
 			cellSize: 80,
 			zoom: null,
+			viewKey: '',
 			grid: new Map(), // "cx,cy" -> Set(wayId)
 			wayPixelBBox: new Map(),
+			wayLayerPoints: new Map(),
 		}
 	}
 
@@ -1386,28 +1388,65 @@ class OSMMap extends HTMLElement {
 
 	// ---------- Spatial index (grid in pixels) ----------
 
+	currentSpatialIndexBounds() {
+		if (!this.map) return null
+		return this.map.getBounds().pad(0.2)
+	}
+
+	spatialViewKey(bounds) {
+		if (!bounds) return ''
+		return [
+			bounds.getSouth().toFixed(5),
+			bounds.getWest().toFixed(5),
+			bounds.getNorth().toFixed(5),
+			bounds.getEast().toFixed(5),
+		].join(',')
+	}
+
 	buildSpatialIndex() {
 		if (!this.spatial.enabled || !this.map) return
 
 		const zoom = this.map.getZoom()
-		if (this.spatial.zoom === zoom && this.spatial.grid.size > 0) return
+		const viewBounds = this.currentSpatialIndexBounds()
+		const viewKey = this.spatialViewKey(viewBounds)
+		if (
+			this.spatial.zoom === zoom &&
+			this.spatial.viewKey === viewKey &&
+			this.spatial.grid.size > 0
+		) {
+			return
+		}
 
 		this.spatial.zoom = zoom
+		this.spatial.viewKey = viewKey
 		this.spatial.grid = new Map()
 		this.spatial.wayPixelBBox = new Map()
+		this.spatial.wayLayerPoints = new Map()
 
 		const cell = this.spatial.cellSize
 
 		for (const [wayId, nodeIds] of this.wayNodeIds.entries()) {
+			const bbox = this.wayBBox.get(wayId)
+			if (bbox && viewBounds && !this.wayBBoxIntersectsBounds(bbox, viewBounds))
+				continue
+
 			let minx = Infinity
 			let miny = Infinity
 			let maxx = -Infinity
 			let maxy = -Infinity
+			const layerPoints = []
 
 			for (const nid of nodeIds) {
 				const n = this.nodesById.get(nid)
 				if (!n) continue
 				const p = this.map.latLngToLayerPoint([n.lat, n.lon])
+				layerPoints.push({
+					nodeId: Number(nid),
+					lat: Number(n.lat),
+					lon: Number(n.lon),
+					x: Number(p.x),
+					y: Number(p.y),
+				})
 				minx = Math.min(minx, p.x)
 				miny = Math.min(miny, p.y)
 				maxx = Math.max(maxx, p.x)
@@ -1416,6 +1455,7 @@ class OSMMap extends HTMLElement {
 
 			if (!isFinite(minx)) continue
 			this.spatial.wayPixelBBox.set(wayId, { minx, miny, maxx, maxy })
+			this.spatial.wayLayerPoints.set(wayId, layerPoints)
 
 			const cx0 = Math.floor(minx / cell)
 			const cy0 = Math.floor(miny / cell)
@@ -2274,19 +2314,26 @@ class OSMMap extends HTMLElement {
 		return latlngs
 	}
 
+	getWayLayerPoints(wayId) {
+		this.buildSpatialIndex()
+		const points = this.spatial.wayLayerPoints.get(Number(wayId))
+		return Array.isArray(points) ? points : []
+	}
+
 	nearestNodeIdOnWay(latlng, wayId) {
-		const ids = this.wayNodeIds.get(wayId)
-		if (!ids) return null
+		const points = this.getWayLayerPoints(wayId)
+		if (points.length === 0) return null
+		const p = this.map.latLngToLayerPoint(latlng)
 
 		let best = null
 		let bestD = Infinity
-		for (const nid of ids) {
-			const n = this.nodesById.get(nid)
-			if (!n) continue
-			const d = this.map.distance(latlng, L.latLng(n.lat, n.lon))
+		for (const point of points) {
+			const dx = p.x - point.x
+			const dy = p.y - point.y
+			const d = dx * dx + dy * dy
 			if (d < bestD) {
 				bestD = d
-				best = nid
+				best = point.nodeId
 			}
 		}
 		return best
@@ -2298,20 +2345,16 @@ class OSMMap extends HTMLElement {
 	}
 
 	nearestSegmentIndexOnWay(latlng, wayId) {
-		const ids = this.wayNodeIds.get(Number(wayId))
-		if (!Array.isArray(ids) || ids.length < 2) return null
+		const points = this.getWayLayerPoints(wayId)
+		if (points.length < 2) return null
+		const p = this.map.latLngToLayerPoint(latlng)
 
 		let bestIndex = null
 		let bestDistance = Infinity
-		for (let i = 0; i < ids.length - 1; i++) {
-			const a = this.nodesById.get(ids[i])
-			const b = this.nodesById.get(ids[i + 1])
-			if (!a || !b) continue
-			const d = this.pointToSegmentDistanceMeters(
-				latlng,
-				L.latLng(a.lat, a.lon),
-				L.latLng(b.lat, b.lon)
-			)
+		for (let i = 0; i < points.length - 1; i++) {
+			const a = points[i]
+			const b = points[i + 1]
+			const d = this.pointToSegmentDistancePixelsFromPoints(p, a, b)
 			if (d < bestDistance) {
 				bestDistance = d
 				bestIndex = i
@@ -2546,7 +2589,10 @@ class OSMMap extends HTMLElement {
 		const P = this.map.latLngToLayerPoint(p)
 		const A = this.map.latLngToLayerPoint(a)
 		const B = this.map.latLngToLayerPoint(b)
+		return this.pointToSegmentDistancePixelsFromPoints(P, A, B)
+	}
 
+	pointToSegmentDistancePixelsFromPoints(P, A, B) {
 		const ABx = B.x - A.x
 		const ABy = B.y - A.y
 		const APx = P.x - A.x
@@ -2599,13 +2645,13 @@ class OSMMap extends HTMLElement {
 	}
 
 	distanceToWayPixels(latlng, wayId) {
-		const ids = this.wayNodeIds.get(wayId)
-		if (!ids || ids.length < 2) return Infinity
+		const points = this.getWayLayerPoints(wayId)
+		if (points.length < 2) return Infinity
 
 		const bb = this.spatial.wayPixelBBox.get(wayId)
+		const p = this.map.latLngToLayerPoint(latlng)
 		if (bb) {
 			const pad = this.hoverPickThresholdPixels() * 2
-			const p = this.map.latLngToLayerPoint(latlng)
 			const boxMinX = Math.min(bb.minx, bb.maxx) - pad
 			const boxMaxX = Math.max(bb.minx, bb.maxx) + pad
 			const boxMinY = Math.min(bb.miny, bb.maxy) - pad
@@ -2616,14 +2662,11 @@ class OSMMap extends HTMLElement {
 		}
 
 		let best = Infinity
-		for (let i = 0; i < ids.length - 1; i++) {
-			const a = this.nodesById.get(ids[i])
-			const b = this.nodesById.get(ids[i + 1])
-			if (!a || !b) continue
-			const d = this.pointToSegmentDistancePixels(
-				latlng,
-				L.latLng(a.lat, a.lon),
-				L.latLng(b.lat, b.lon)
+		for (let i = 0; i < points.length - 1; i++) {
+			const d = this.pointToSegmentDistancePixelsFromPoints(
+				p,
+				points[i],
+				points[i + 1]
 			)
 			if (d < best) best = d
 		}
@@ -2802,16 +2845,26 @@ class OSMMap extends HTMLElement {
 
 	rankWayCandidates(latlng, wayIds = []) {
 		const expectedNodeId = this.getExpectedContinuationNodeId()
-		const ranked = []
+		const zoom = this.map?.getZoom?.() ?? 14
+		const highZoom = zoom >= 21
+		const prelim = []
 
 		for (const rawWayId of wayIds) {
 			const wayId = Number(rawWayId)
 			const pixelDistance = this.distanceToWayPixels(latlng, wayId)
 			if (!Number.isFinite(pixelDistance)) continue
+			prelim.push({ wayId, pixelDistance })
+		}
 
-			const distance = this.distanceToWayMeters(latlng, wayId)
+		prelim.sort((a, b) => a.pixelDistance - b.pixelDistance)
+		const shortlist = prelim.slice(0, highZoom ? 8 : 14)
+		const ranked = []
+
+		for (const candidate of shortlist) {
+			const wayId = candidate.wayId
+			const pixelDistance = candidate.pixelDistance
+			const distance = highZoom ? pixelDistance : this.distanceToWayMeters(latlng, wayId)
 			if (!Number.isFinite(distance)) continue
-
 			const nearestNodeId = this.nearestNodeIdOnWay(latlng, wayId)
 			const tags = this.getWayTags(wayId)
 			const containsExpected = this.wayContainsNode(wayId, expectedNodeId)
