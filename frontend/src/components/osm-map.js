@@ -22,6 +22,7 @@ class OSMMap extends HTMLElement {
 			autoLoad: true,
 			readOnly: false,
 			interactionMode: 'create',
+			debugShowWays: false,
 			baseMap: 'roadmap',
 			currentDrawingColor: '#0060DD',
 			annotationDraft: { text: '', color: '#0060DD', fontSize: 12 },
@@ -51,6 +52,7 @@ class OSMMap extends HTMLElement {
 		// Leaflet
 		this.map = null
 		this.baseMapLayers = null
+		this.debugWaysLayer = null
 		this.hoverLayer = null
 		this.selectedLayer = null
 		this.editLayer = null
@@ -222,6 +224,7 @@ class OSMMap extends HTMLElement {
 		})
 		this._ro.observe(this)
 
+		this.debugWaysLayer = L.layerGroup().addTo(this.map)
 		this.hoverLayer = L.layerGroup().addTo(this.map)
 		this.selectedLayer = L.layerGroup().addTo(this.map)
 		this.editLayer = L.layerGroup().addTo(this.map)
@@ -278,12 +281,14 @@ class OSMMap extends HTMLElement {
 		this.map.on(
 			'moveend',
 			this.debounce(() => {
+				this.redrawDebugWays()
 				if (this.options.autoLoad) this.loadWaysInView()
 			}, 250)
 		)
 
 		this.map.on('zoomend', () => {
 			this.buildSpatialIndex()
+			this.redrawDebugWays()
 			this.updateAnnotationEditor()
 		})
 		this.$toolbox?.addEventListener('toggle', (e) => {
@@ -380,6 +385,8 @@ class OSMMap extends HTMLElement {
 		const baseMapChanged =
 			this.normalizeBaseMap(next.baseMap) !==
 			this.normalizeBaseMap(this.options.baseMap)
+		const debugWaysChanged =
+			!!next.debugShowWays !== !!this.options.debugShowWays
 		this.options = next
 		if (modeChanged && this.options.interactionMode === 'select') {
 			this.clearSelection()
@@ -389,6 +396,7 @@ class OSMMap extends HTMLElement {
 			this.applyBaseMap(this.options.baseMap)
 			this.updateBaseMapToggle()
 		}
+		if (debugWaysChanged) this.redrawDebugWays()
 		this.syncMapEditingState()
 		this.updateToolbox()
 	}
@@ -446,6 +454,7 @@ class OSMMap extends HTMLElement {
 		this.wayToContentTiles = new Map()
 		this.clearHover()
 		this.buildSpatialIndex()
+		this.redrawDebugWays()
 		this.redrawSelected()
 	}
 
@@ -1090,6 +1099,7 @@ class OSMMap extends HTMLElement {
 		this.recomputeIntersections?.()
 		this.spatial.zoom = null
 		this.buildSpatialIndex?.()
+		this.redrawDebugWays?.()
 		this.clearHover?.()
 		this.redrawSelected?.()
 	}
@@ -1379,6 +1389,7 @@ class OSMMap extends HTMLElement {
 	updateToolbox() {
 		this.$toolbox?.setState({
 			interactionMode: this.options.interactionMode,
+			debugShowWays: !!this.options.debugShowWays,
 			currentDrawingColor:
 				this.normalizeColor(this.options.currentDrawingColor) || '#0060DD',
 			selectedAnnotationId: this.options.selectedAnnotationId,
@@ -1461,6 +1472,35 @@ class OSMMap extends HTMLElement {
 				y: point.y - 18,
 			},
 		})
+	}
+
+	redrawDebugWays() {
+		this.debugWaysLayer?.clearLayers()
+		if (!this.map || !this.debugWaysLayer || !this.options.debugShowWays) return
+
+		const bounds = this.map.getBounds()
+		for (const [wayId, bbox] of this.wayBBox.entries()) {
+			if (!this.wayBBoxIntersectsBounds(bbox, bounds)) continue
+			const latlngs = this.wayToLatLngs(wayId)
+			if (latlngs.length < 2) continue
+			L.polyline(latlngs, {
+				color: '#111827',
+				weight: 2,
+				opacity: 0.45,
+				interactive: false,
+				bubblingMouseEvents: false,
+			}).addTo(this.debugWaysLayer)
+		}
+	}
+
+	wayBBoxIntersectsBounds(bbox, bounds) {
+		if (!bbox || !bounds) return false
+		return !(
+			Number(bbox.maxLat) < bounds.getSouth() ||
+			Number(bbox.minLat) > bounds.getNorth() ||
+			Number(bbox.maxLon) < bounds.getWest() ||
+			Number(bbox.minLon) > bounds.getEast()
+		)
 	}
 
 	renderHoverWay(wayId, match = null) {

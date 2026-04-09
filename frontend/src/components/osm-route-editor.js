@@ -20,6 +20,7 @@ class OSMRouteEditor extends HTMLElement {
 			strict: true,
 			autoLoad: true,
 			interactionMode: 'create',
+			debugShowWays: false,
 			lastSegmentColor: '#0060DD',
 			selectedAnnotationId: null,
 			editingAnnotationId: null,
@@ -73,11 +74,13 @@ class OSMRouteEditor extends HTMLElement {
 							? 'Mode annotation : clique sur la carte pour poser une note.'
 							: 'Mode création : clique sur la carte pour ajouter un tronçon.'
 			}
+			if (name === 'debugShowWays') this.ui.debugShowWays = !!value
 			this.renderPanel()
 			this.$map.setOptions({
 				strict: this.ui.strict,
 				autoLoad: this.ui.autoLoad,
 				interactionMode: this.ui.interactionMode,
+				debugShowWays: this.ui.debugShowWays,
 				currentDrawingColor: this.ui.lastSegmentColor,
 				selectedAnnotationId: this.ui.selectedAnnotationId,
 				editingAnnotationId: this.ui.editingAnnotationId,
@@ -226,20 +229,26 @@ class OSMRouteEditor extends HTMLElement {
 
 		this.$map.addEventListener('toggle', (e) => {
 			const { name, value } = e.detail
-			if (name !== 'interactionMode') return
-			this.ui.interactionMode =
-				value === 'select' || value === 'annotate' ? value : 'create'
-			this.ui.pickStatus =
-				this.ui.interactionMode === 'select'
-					? 'Mode sélection : clique un segment existant sur la carte ou dans la liste.'
-					: this.ui.interactionMode === 'annotate'
-						? 'Mode annotation : clique sur la carte pour poser une note.'
-						: 'Mode création : clique sur la carte pour ajouter un tronçon.'
+			if (name === 'interactionMode') {
+				this.ui.interactionMode =
+					value === 'select' || value === 'annotate' ? value : 'create'
+				this.ui.pickStatus =
+					this.ui.interactionMode === 'select'
+						? 'Mode sélection : clique un segment existant sur la carte ou dans la liste.'
+						: this.ui.interactionMode === 'annotate'
+							? 'Mode annotation : clique sur la carte pour poser une note.'
+							: 'Mode création : clique sur la carte pour ajouter un tronçon.'
+			} else if (name === 'debugShowWays') {
+				this.ui.debugShowWays = !!value
+			} else {
+				return
+			}
 			this.renderAll()
 			this.$map.setOptions({
 				strict: this.ui.strict,
 				autoLoad: this.ui.autoLoad,
 				interactionMode: this.ui.interactionMode,
+				debugShowWays: this.ui.debugShowWays,
 				currentDrawingColor: this.ui.lastSegmentColor,
 				selectedAnnotationId: this.ui.selectedAnnotationId,
 				editingAnnotationId: this.ui.editingAnnotationId,
@@ -282,6 +291,7 @@ class OSMRouteEditor extends HTMLElement {
 				strict: this.ui.strict,
 				autoLoad: this.ui.autoLoad,
 				interactionMode: this.ui.interactionMode,
+				debugShowWays: this.ui.debugShowWays,
 				currentDrawingColor: this.ui.lastSegmentColor,
 				selectedAnnotationId: this.ui.selectedAnnotationId,
 				editingAnnotationId: this.ui.editingAnnotationId,
@@ -313,6 +323,7 @@ class OSMRouteEditor extends HTMLElement {
 				strict: this.ui.strict,
 				autoLoad: this.ui.autoLoad,
 				interactionMode: this.ui.interactionMode,
+				debugShowWays: this.ui.debugShowWays,
 				currentDrawingColor: this.ui.lastSegmentColor,
 				selectedAnnotationId: this.ui.selectedAnnotationId,
 				editingAnnotationId: this.ui.editingAnnotationId,
@@ -384,6 +395,7 @@ class OSMRouteEditor extends HTMLElement {
 				strict: this.ui.strict,
 				autoLoad: this.ui.autoLoad,
 				interactionMode: this.ui.interactionMode,
+				debugShowWays: this.ui.debugShowWays,
 				currentDrawingColor: this.ui.lastSegmentColor,
 				selectedAnnotationId: this.ui.selectedAnnotationId,
 				editingAnnotationId: this.ui.editingAnnotationId,
@@ -509,6 +521,7 @@ class OSMRouteEditor extends HTMLElement {
 			strict: this.ui.strict,
 			autoLoad: this.ui.autoLoad,
 			interactionMode: this.ui.interactionMode,
+			debugShowWays: this.ui.debugShowWays,
 			currentDrawingColor: this.ui.lastSegmentColor,
 			selectedAnnotationId: this.ui.selectedAnnotationId,
 			editingAnnotationId: this.ui.editingAnnotationId,
@@ -540,6 +553,7 @@ class OSMRouteEditor extends HTMLElement {
 			strict: this.ui.strict,
 			autoLoad: this.ui.autoLoad,
 			interactionMode: this.ui.interactionMode,
+			debugShowWays: this.ui.debugShowWays,
 			currentDrawingColor: this.ui.lastSegmentColor,
 			selectedAnnotationId: this.ui.selectedAnnotationId,
 			editingAnnotationId: this.ui.editingAnnotationId,

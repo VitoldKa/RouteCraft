@@ -4,6 +4,7 @@ class MapToolbox extends HTMLElement {
 		this.attachShadow({ mode: 'open' })
 		this.state = {
 			interactionMode: 'create',
+			debugShowWays: false,
 			currentDrawingColor: '#0060DD',
 			selectedAnnotationId: null,
 			editingAnnotationId: null,
@@ -188,6 +189,13 @@ class MapToolbox extends HTMLElement {
             <path d="M9 18H15"></path>
           </svg>
         </button>
+        <button id="toolDebugWays" class="toolBtn" type="button" title="Debug: draw loaded ways in viewport" aria-label="Debug: draw loaded ways in viewport">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 18L8 12L11 14L16 7L20 10"></path>
+            <path d="M4 6H10"></path>
+            <path d="M14 18H20"></path>
+          </svg>
+        </button>
         <div class="toolColor">
           <div class="toolColorTop">
             <input id="toolColorInput" class="toolColorSwatch" type="color" value="#0060DD" aria-label="Drawing color">
@@ -229,6 +237,20 @@ class MapToolbox extends HTMLElement {
 				this.emitToggle('annotate')
 			})
 		this.shadowRoot
+			.querySelector('#toolDebugWays')
+			.addEventListener('click', () => {
+				this.dispatchEvent(
+					new CustomEvent('toggle', {
+						detail: {
+							name: 'debugShowWays',
+							value: !this.state.debugShowWays,
+						},
+						bubbles: true,
+						composed: true,
+					})
+				)
+			})
+		this.shadowRoot
 			.querySelector('#toolColorInput')
 			.addEventListener('input', (e) => {
 				this.emitDrawingColorChange(e.target.value)
@@ -267,6 +289,7 @@ class MapToolbox extends HTMLElement {
 		const createBtn = this.shadowRoot.querySelector('#toolCreate')
 		const selectBtn = this.shadowRoot.querySelector('#toolSelect')
 		const annotateBtn = this.shadowRoot.querySelector('#toolAnnotate')
+		const debugWaysBtn = this.shadowRoot.querySelector('#toolDebugWays')
 		const colorInput = this.shadowRoot.querySelector('#toolColorInput')
 		const colorValue = this.shadowRoot.querySelector('#toolColorValue')
 		const annotationDraft = this.normalizeAnnotationDraft(
@@ -285,6 +308,8 @@ class MapToolbox extends HTMLElement {
 				this.state.interactionMode === 'select'
 			)
 		if (annotateBtn) annotateBtn.classList.toggle('active', isAnnotate)
+		if (debugWaysBtn)
+			debugWaysBtn.classList.toggle('active', !!this.state.debugShowWays)
 		if (colorInput && colorInput.value !== color) colorInput.value = color
 		if (colorValue) colorValue.textContent = color
 		if (annotationFontSize && document.activeElement !== annotationFontSize)
