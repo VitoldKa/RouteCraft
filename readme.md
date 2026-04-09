@@ -429,7 +429,7 @@ docker buildx build --platform linux/amd64 -t routecraft --output=type=docker .
 
 ```sh
 docker save routecraft -o dist/routecraft.tar
-rsync -avz dist/routecraft.tar ubuntu@example.net:/home/ubuntu/routecraft/
+rsync -avz  --progress --human-readable dist/routecraft.tar ubuntu@example.net:/home/ubuntu/routecraft/
 ```
 
 Deploy:
