@@ -357,7 +357,7 @@ wget https://planet.openstreetmap.org/planet/planet-latest.osm.bz2
 osmium cat planet-latest.osm.bz2 -o planet-latest.osm.pbf
 
 osmium tags-filter planet-latest.osm.pbf \
-  w/highway=motorway_link,trunk_link,primary_link,secondary_link,tertiary_link,pedestrian,residential,living_street,tertiary,secondary,primary,unclassified,service,path,track \
+  w/highway=motorway,motorway_link,trunk,trunk_link,primary_link,secondary_link,tertiary_link,pedestrian,residential,living_street,tertiary,secondary,primary,unclassified,service,path,track \
   w/railway=tram,light_rail \
   w/busway \
   w/lanes:bus \
@@ -370,7 +370,7 @@ or with Docker:
 ```sh
 docker run --rm -v "$PWD:/data" iboates/osmium \
   tags-filter /data/area.osm.pbf \
-  w/highway=motorway_link,trunk_link,primary_link,secondary_link,tertiary_link,pedestrian,residential,living_street,tertiary,secondary,primary,unclassified,service,path,track \
+  w/highway=motorway,motorway_link,trunk,trunk_link,primary_link,secondary_link,tertiary_link,pedestrian,residential,living_street,tertiary,secondary,primary,unclassified,service,path,track \
   w/railway=tram,light_rail \
   w/busway \
   w/lanes:bus \
