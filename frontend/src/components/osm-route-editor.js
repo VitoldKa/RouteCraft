@@ -506,12 +506,13 @@ class OSMRouteEditor extends HTMLElement {
 
 		// ---- Map: segment add/update + status
 		this.$map.addEventListener('segment-add', (e) => {
+			const insertedIndex = this.route.length
 			const segment = { ...e.detail.segment }
 			const color = this.normalizeSegmentColor(this.ui.lastSegmentColor)
 			if (color) segment.color = color
 			this.route.push(segment)
+			this.autoOrderRoute(insertedIndex)
 			this.ui.lastError = null
-			this.ui.selectedIndex = this.route.length - 1 // auto focus on new segment
 			this.renderAll()
 			this.$json.setJSON({ route: this.route, annotations: this.annotations })
 			this.$map.setSelectedIndex(this.ui.selectedIndex)
@@ -520,14 +521,15 @@ class OSMRouteEditor extends HTMLElement {
 		this.$map.addEventListener('segment-add-batch', (e) => {
 			const segments = Array.isArray(e.detail?.segments) ? e.detail.segments : []
 			if (segments.length === 0) return
+			const insertedLastIndex = this.route.length + segments.length - 1
 			const color = this.normalizeSegmentColor(this.ui.lastSegmentColor)
 			for (const rawSegment of segments) {
 				const segment = { ...rawSegment }
 				if (color) segment.color = color
 				this.route.push(segment)
 			}
+			this.autoOrderRoute(insertedLastIndex)
 			this.ui.lastError = null
-			this.ui.selectedIndex = this.route.length - 1
 			this.renderAll()
 			this.$json.setJSON({ route: this.route, annotations: this.annotations })
 			this.$map.setSelectedIndex(this.ui.selectedIndex)
@@ -536,6 +538,7 @@ class OSMRouteEditor extends HTMLElement {
 		this.$map.addEventListener('segment-update', (e) => {
 			const { index, segment } = e.detail
 			this.route[index] = { ...this.route[index], ...segment }
+			this.autoOrderRoute(index)
 			this.renderAll()
 			this.$json.setJSON({ route: this.route, annotations: this.annotations })
 		})
@@ -606,6 +609,172 @@ class OSMRouteEditor extends HTMLElement {
 			dirty: this.ui.dirty,
 			selectedIndex: this.ui.selectedIndex,
 		})
+	}
+
+	autoOrderRoute(preferredOriginalIndex = this.ui.selectedIndex) {
+		const ordered = this.buildAutoOrderedRoute(this.route)
+		if (!ordered || ordered.length === 0) return
+
+		this.route = ordered.map((item) => item.segment)
+		if (preferredOriginalIndex >= 0) {
+			this.ui.selectedIndex = ordered.findIndex(
+				(item) => item.originalIndex === preferredOriginalIndex
+			)
+		} else {
+			this.ui.selectedIndex = -1
+		}
+	}
+
+	buildAutoOrderedRoute(route) {
+		const source = Array.isArray(route) ? route : []
+		if (source.length <= 1) {
+			return source.map((segment, originalIndex) => ({
+				originalIndex,
+				segment: { ...segment },
+			}))
+		}
+
+		const states = []
+		source.forEach((segment, originalIndex) => {
+			states.push(this.buildSegmentState(segment, originalIndex, false))
+			states.push(this.buildSegmentState(segment, originalIndex, true))
+		})
+
+		let bestPlan = null
+		let bestScore = Infinity
+		let bestStartPenalty = Infinity
+
+		for (const startState of states) {
+			const plan = [startState]
+			const used = new Set([startState.originalIndex])
+			let totalCost = 0
+
+			while (plan.length < source.length) {
+				const prev = plan[plan.length - 1]
+				let bestNext = null
+				let bestNextCost = Infinity
+
+				for (const candidate of states) {
+					if (used.has(candidate.originalIndex)) continue
+					const cost = this.routeTransitionCost(prev, candidate)
+					if (cost < bestNextCost) {
+						bestNext = candidate
+						bestNextCost = cost
+					}
+				}
+
+				if (!bestNext) break
+				plan.push(bestNext)
+				used.add(bestNext.originalIndex)
+				totalCost += bestNextCost
+			}
+
+			if (plan.length !== source.length) continue
+
+			const startPenalty = this.startStatePenalty(startState, source)
+			if (
+				totalCost < bestScore ||
+				(totalCost === bestScore && startPenalty < bestStartPenalty)
+			) {
+				bestPlan = plan
+				bestScore = totalCost
+				bestStartPenalty = startPenalty
+			}
+		}
+
+		if (!bestPlan) {
+			return source.map((segment, originalIndex) => ({
+				originalIndex,
+				segment: { ...segment },
+			}))
+		}
+
+		return bestPlan.map((state) => ({
+			originalIndex: state.originalIndex,
+			segment: state.segment,
+		}))
+	}
+
+	buildSegmentState(segment, originalIndex, reversed) {
+		const base = { ...segment }
+		if (reversed) {
+			return {
+				originalIndex,
+				reversed: true,
+				startNode: Number(base.toNode),
+				endNode: Number(base.fromNode),
+				segment: {
+					...base,
+					fromNode: Number(base.toNode),
+					toNode: Number(base.fromNode),
+				},
+			}
+		}
+
+		return {
+			originalIndex,
+			reversed: false,
+			startNode: Number(base.fromNode),
+			endNode: Number(base.toNode),
+			segment: {
+				...base,
+				fromNode: Number(base.fromNode),
+				toNode: Number(base.toNode),
+			},
+		}
+	}
+
+	routeTransitionCost(prevState, nextState) {
+		if (!prevState || !nextState) return Number.POSITIVE_INFINITY
+		if (prevState.originalIndex === nextState.originalIndex)
+			return Number.POSITIVE_INFINITY
+		if (prevState.endNode === nextState.startNode) return 0
+
+		const meters = this.nodeDistanceMeters(prevState.endNode, nextState.startNode)
+		if (!Number.isFinite(meters)) return Number.POSITIVE_INFINITY
+		return 100000 + meters
+	}
+
+	startStatePenalty(startState, source) {
+		if (!startState) return Number.POSITIVE_INFINITY
+
+		let incomingMatches = 0
+		let nearestIncoming = Number.POSITIVE_INFINITY
+
+		source.forEach((segment, index) => {
+			if (index === startState.originalIndex) return
+			const endpoints = [Number(segment?.fromNode), Number(segment?.toNode)]
+			if (endpoints.includes(startState.startNode)) incomingMatches++
+			for (const endpoint of endpoints) {
+				const meters = this.nodeDistanceMeters(endpoint, startState.startNode)
+				if (Number.isFinite(meters) && meters < nearestIncoming) {
+					nearestIncoming = meters
+				}
+			}
+		})
+
+		const proximityPenalty = Number.isFinite(nearestIncoming)
+			? Math.max(0, 50000 - nearestIncoming)
+			: 0
+		const originalBias =
+			startState.originalIndex === 0 && startState.reversed === false ? -1 : 0
+
+		return incomingMatches * 100000 + proximityPenalty + originalBias
+	}
+
+	nodeDistanceMeters(fromNodeId, toNodeId) {
+		const from = this.cache.nodesById.get(Number(fromNodeId))
+		const to = this.cache.nodesById.get(Number(toNodeId))
+		if (!from || !to) return Number.POSITIVE_INFINITY
+
+		const lat1 = (Number(from.lat) * Math.PI) / 180
+		const lat2 = (Number(to.lat) * Math.PI) / 180
+		const dLat = lat2 - lat1
+		const dLon = ((Number(to.lon) - Number(from.lon)) * Math.PI) / 180
+		const a =
+			Math.sin(dLat / 2) ** 2 +
+			Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+		return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(a)))
 	}
 
 	normalizeSegmentColor(value) {
@@ -873,6 +1042,7 @@ class OSMRouteEditor extends HTMLElement {
 
 		await this.loadCacheFromRouteWayIds()
 		this.syncCacheFromMap()
+		this.autoOrderRoute(-1)
 		this.$map.fitRoute(this.route)
 
 		this.renderAll()
