@@ -122,6 +122,8 @@ class OSMRouteEditor extends HTMLElement {
 			}
 
 			if (type === 'export') {
+				this.autoOrderRoute(this.ui.selectedIndex)
+				this.renderAll()
 				this.$json.setJSON(this.buildFullExport())
 				this.ui.dirty = false
 				this.ui.ioStatus = { kind: 'ok', text: 'Synchronisé' }
@@ -130,6 +132,8 @@ class OSMRouteEditor extends HTMLElement {
 			}
 
 			if (type === 'export-drawable') {
+				this.autoOrderRoute(this.ui.selectedIndex)
+				this.renderAll()
 				await this.loadCacheFromRouteWayIds()
 				this.syncCacheFromMap()
 				const drawable = this.buildDrawableExport()
