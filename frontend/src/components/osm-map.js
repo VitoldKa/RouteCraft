@@ -51,6 +51,7 @@ class OSMMap extends HTMLElement {
 
 		// Leaflet
 		this.map = null
+		this.vectorRenderer = null
 		this.baseMapLayers = null
 		this.debugWaysLayer = null
 		this.hoverLayer = null
@@ -177,11 +178,11 @@ class OSMMap extends HTMLElement {
       </div>
     `
 
-		this.map = L.map(this.shadowRoot.querySelector('#map')).setView(
-			[46.2044, 6.1432],
-			14
-		)
+		this.map = L.map(this.shadowRoot.querySelector('#map'), {
+			preferCanvas: true,
+		}).setView([46.2044, 6.1432], 14)
 		this.map.zoomControl?.setPosition('bottomright')
+		this.vectorRenderer = L.canvas({ padding: 0.5 })
 
 		L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/'
 
@@ -1489,6 +1490,7 @@ class OSMMap extends HTMLElement {
 				opacity: 0.45,
 				interactive: false,
 				bubblingMouseEvents: false,
+				renderer: this.vectorRenderer,
 			}).addTo(this.debugWaysLayer)
 		}
 	}
@@ -1511,7 +1513,11 @@ class OSMMap extends HTMLElement {
 		const latlngs = this.wayToLatLngs(wayId)
 		if (latlngs.length < 2) return
 
-		const poly = L.polyline(latlngs, { weight: 7, opacity: 0.9 }).addTo(
+		const poly = L.polyline(latlngs, {
+			weight: 7,
+			opacity: 0.9,
+			renderer: this.vectorRenderer,
+		}).addTo(
 			this.hoverLayer
 		)
 		const tags = this.wayTags.get(wayId) || {}
@@ -1628,6 +1634,7 @@ class OSMMap extends HTMLElement {
 				weight: 2,
 				opacity: 0.9,
 				fillOpacity: 0.5,
+				renderer: this.vectorRenderer,
 			})
 				.bindTooltip('Départ', { sticky: true })
 				.addTo(this.pickLayer)
@@ -1765,6 +1772,7 @@ class OSMMap extends HTMLElement {
 				weight: isSelected ? 10 : 7,
 				opacity: isSelected ? 1.0 : 0.75,
 				bubblingMouseEvents: false,
+				renderer: this.vectorRenderer,
 			}).addTo(this.selectedLayer)
 			this.addSegmentDirectionArrow(latlngs, {
 				color: isInvalid ? '#d00' : segmentColor,
@@ -2023,11 +2031,11 @@ class OSMMap extends HTMLElement {
 		const b = ids.indexOf(toNode)
 		if (a < 0 || b < 0) return []
 
-		const from = Math.min(a, b)
-		const to = Math.max(a, b)
+		const orderedNodeIds =
+			a <= b ? ids.slice(a, b + 1) : ids.slice(b, a + 1).reverse()
 
 		const latlngs = []
-		for (const nid of ids.slice(from, to + 1)) {
+		for (const nid of orderedNodeIds) {
 			const n = this.nodesById.get(nid)
 			if (!n) continue
 			latlngs.push([n.lat, n.lon])
