@@ -193,6 +193,10 @@ class OSMMap extends HTMLElement {
 		this.vectorRenderer = L.canvas({ padding: 0.5 })
 
 		L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/'
+		const swissBounds = [
+			[45.817, 5.956],
+			[47.808, 10.492],
+		]
 
 		this.baseMapLayers = {
 			roadmap: [
@@ -207,18 +211,19 @@ class OSMMap extends HTMLElement {
 					'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 					{
 						maxNativeZoom: 19,
-						maxZoom: 22,
+						maxZoom: 32,
 						attribution:
 							'Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community',
 					}
 				),
 				L.tileLayer(
-					'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+					'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
 					{
-						maxNativeZoom: 19,
-						maxZoom: 22,
-						attribution: 'Labels &copy; Esri',
-						opacity: 0.9,
+						minZoom: 12,
+						maxNativeZoom: 20,
+						maxZoom: 32,
+						bounds: swissBounds,
+						attribution: 'Imagery &copy; swisstopo / geo.admin.ch',
 					}
 				),
 			],
@@ -297,6 +302,7 @@ class OSMMap extends HTMLElement {
 		)
 
 		this.map.on('zoomend', () => {
+			console.log('[OSMMap] zoom', this.map?.getZoom())
 			this.buildSpatialIndex()
 			this.redrawDebugWays()
 			this.updateAnnotationEditor()
