@@ -388,7 +388,7 @@ class OSMMap extends HTMLElement {
 		})
 		this.updateToolbox()
 
-		this.emitStatus({ pickStatus: 'Aucun point', error: null })
+		this.emitStatus({ pickStatus: t('initialPickStatus'), error: null })
 	}
 
 	disconnectedCallback() {
@@ -407,7 +407,12 @@ class OSMMap extends HTMLElement {
 		const debugWaysChanged =
 			!!next.debugShowWays !== !!this.options.debugShowWays
 		this.options = next
-		if (modeChanged && this.options.interactionMode === 'select') {
+		if (
+			modeChanged &&
+			(this.options.interactionMode === 'select' ||
+				this.options.interactionMode === 'annotate' ||
+				this.options.interactionMode === 'flip')
+		) {
 			this.clearSelection()
 			this.clearHover()
 		}
@@ -1800,7 +1805,8 @@ class OSMMap extends HTMLElement {
 		if (this.options.readOnly) return
 		if (
 			this.options.interactionMode === 'select' ||
-			this.options.interactionMode === 'annotate'
+			this.options.interactionMode === 'annotate' ||
+			this.options.interactionMode === 'flip'
 		) {
 			this.clearHover()
 			return
@@ -1852,7 +1858,11 @@ class OSMMap extends HTMLElement {
 			this.addTextAnnotationAt(e.latlng)
 			return
 		}
-		if (this.options.interactionMode === 'select') return
+		if (
+			this.options.interactionMode === 'select' ||
+			this.options.interactionMode === 'flip'
+		)
+			return
 
 		if (
 			e.originalEvent &&
@@ -2093,6 +2103,16 @@ class OSMMap extends HTMLElement {
 				L.DomEvent.stop(ev)
 				L.DomEvent.stopPropagation(ev)
 				L.DomEvent.preventDefault(ev)
+				if (this.options.interactionMode === 'flip') {
+					this.dispatchEvent(
+						new CustomEvent('reverse-segment', {
+							detail: { index: idx, source: 'map' },
+							bubbles: true,
+							composed: true,
+						})
+					)
+					return
+				}
 				this.dispatchEvent(
 					new CustomEvent('select-segment', {
 						detail: { index: idx, source: 'map' },

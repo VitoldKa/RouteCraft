@@ -47,6 +47,7 @@ const messages = {
 		codeMirrorMissing:
 			"CodeMirror is not available.\nCheck that the CodeMirror scripts are loaded BEFORE app.js in index.html.\nExample: <script src='.../codemirror.min.js'></script> then <script type='module' src='app.js'></script>",
 		selectionTool: 'Selection tool',
+		flipTool: 'Flip direction tool',
 		creationTool: 'Creation tool',
 		textAnnotationTool: 'Text annotation tool',
 		debugWaysTool: 'Debug: draw loaded ways in viewport',
@@ -76,7 +77,10 @@ const messages = {
 		modeSelect:
 			'Selection mode: click an existing segment on the map or in the list.',
 		modeAnnotate: 'Annotation mode: click on the map to place a note.',
+		modeFlip:
+			'Flip mode: click an existing segment on the map to reverse its direction.',
 		modeCreate: 'Creation mode: click on the map to add a segment.',
+		segmentFlipped: ({ index }) => `Segment ${index} direction flipped.`,
 		annotationModeHint:
 			'Annotation mode: double-click the note to edit text, or drag it to move it.',
 		annotationEditHint:
@@ -144,6 +148,7 @@ const messages = {
 		codeMirrorMissing:
 			"CodeMirror n'est pas disponible.\nVérifie que les scripts CodeMirror sont bien chargés AVANT app.js dans index.html.\nEx: <script src='.../codemirror.min.js'></script> puis <script type='module' src='app.js'></script>",
 		selectionTool: 'Outil de sélection',
+		flipTool: "Outil d'inversion de sens",
 		creationTool: 'Outil de création',
 		textAnnotationTool: "Outil d'annotation texte",
 		debugWaysTool: 'Debug : dessiner les ways chargées dans le viewport',
@@ -173,7 +178,10 @@ const messages = {
 		modeSelect:
 			'Mode sélection : clique un segment existant sur la carte ou dans la liste.',
 		modeAnnotate: 'Mode annotation : clique sur la carte pour poser une note.',
+		modeFlip:
+			"Mode inversion : clique un segment existant sur la carte pour inverser son sens.",
 		modeCreate: 'Mode création : clique sur la carte pour ajouter un tronçon.',
+		segmentFlipped: ({ index }) => `Sens du segment ${index} inversé.`,
 		annotationModeHint:
 			'Mode annotation : double-clique la note pour éditer le texte, ou glisse-la pour la déplacer.',
 		annotationEditHint:

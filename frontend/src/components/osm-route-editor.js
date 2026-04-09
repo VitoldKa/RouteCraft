@@ -78,10 +78,14 @@ class OSMRouteEditor extends HTMLElement {
 			if (name === 'autoLoad') this.ui.autoLoad = !!value
 			if (name === 'interactionMode') {
 				this.ui.interactionMode =
-					value === 'select' || value === 'annotate' ? value : 'create'
+					value === 'select' || value === 'annotate' || value === 'flip'
+						? value
+						: 'create'
 				this.ui.pickStatus =
 					this.ui.interactionMode === 'select'
 						? t('modeSelect')
+						: this.ui.interactionMode === 'flip'
+							? t('modeFlip')
 						: this.ui.interactionMode === 'annotate'
 							? t('modeAnnotate')
 							: t('modeCreate')
@@ -240,6 +244,20 @@ class OSMRouteEditor extends HTMLElement {
 				}
 			}
 
+			if (
+				op.type === 'reverse' &&
+				op.index >= 0 &&
+				op.index < this.route.length
+			) {
+				const seg = this.route[op.index]
+				this.route[op.index] = {
+					...seg,
+					fromNode: Number(seg.toNode),
+					toNode: Number(seg.fromNode),
+				}
+				this.autoOrderRoute(op.index)
+			}
+
 			this.renderAll()
 			this.$json.setJSON({ route: this.route, annotations: this.annotations })
 		})
@@ -263,10 +281,14 @@ class OSMRouteEditor extends HTMLElement {
 			const { name, value } = e.detail
 			if (name === 'interactionMode') {
 				this.ui.interactionMode =
-					value === 'select' || value === 'annotate' ? value : 'create'
+					value === 'select' || value === 'annotate' || value === 'flip'
+						? value
+						: 'create'
 				this.ui.pickStatus =
 					this.ui.interactionMode === 'select'
 						? t('modeSelect')
+						: this.ui.interactionMode === 'flip'
+							? t('modeFlip')
 						: this.ui.interactionMode === 'annotate'
 							? t('modeAnnotate')
 							: t('modeCreate')
@@ -505,6 +527,26 @@ class OSMRouteEditor extends HTMLElement {
 			this.$map.setSelectedIndex(this.ui.selectedIndex)
 		})
 
+		this.$map.addEventListener('reverse-segment', (e) => {
+			const index = Number(e.detail?.index)
+			if (!Number.isInteger(index) || index < 0 || index >= this.route.length)
+				return
+			const seg = this.route[index]
+			this.route[index] = {
+				...seg,
+				fromNode: Number(seg.toNode),
+				toNode: Number(seg.fromNode),
+			}
+			this.autoOrderRoute(index)
+			this.ui.lastError = null
+			this.ui.pickStatus = t('segmentFlipped', {
+				index: this.ui.selectedIndex + 1,
+			})
+			this.renderAll()
+			this.$json.setJSON({ route: this.route, annotations: this.annotations })
+			this.$map.setSelectedIndex(this.ui.selectedIndex)
+		})
+
 		// ---- JSON editor: dirty + auto-apply
 		this.$json.addEventListener('dirty-change', (e) => {
 			const { dirty, valid } = e.detail
@@ -652,11 +694,9 @@ class OSMRouteEditor extends HTMLElement {
 			}))
 		}
 
-		const states = []
-		source.forEach((segment, originalIndex) => {
-			states.push(this.buildSegmentState(segment, originalIndex, false))
-			states.push(this.buildSegmentState(segment, originalIndex, true))
-		})
+		const states = source.map((segment, originalIndex) =>
+			this.buildSegmentState(segment, originalIndex)
+		)
 
 		let bestPlan = null
 		let bestScore = Infinity
@@ -713,22 +753,8 @@ class OSMRouteEditor extends HTMLElement {
 		}))
 	}
 
-	buildSegmentState(segment, originalIndex, reversed) {
+	buildSegmentState(segment, originalIndex) {
 		const base = { ...segment }
-		if (reversed) {
-			return {
-				originalIndex,
-				reversed: true,
-				startNode: Number(base.toNode),
-				endNode: Number(base.fromNode),
-				segment: {
-					...base,
-					fromNode: Number(base.toNode),
-					toNode: Number(base.fromNode),
-				},
-			}
-		}
-
 		return {
 			originalIndex,
 			reversed: false,
@@ -774,8 +800,7 @@ class OSMRouteEditor extends HTMLElement {
 		const proximityPenalty = Number.isFinite(nearestIncoming)
 			? Math.max(0, 50000 - nearestIncoming)
 			: 0
-		const originalBias =
-			startState.originalIndex === 0 && startState.reversed === false ? -1 : 0
+		const originalBias = startState.originalIndex === 0 ? -1 : 0
 
 		return incomingMatches * 100000 + proximityPenalty + originalBias
 	}

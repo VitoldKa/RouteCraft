@@ -176,6 +176,14 @@ class MapToolbox extends HTMLElement {
             <path d="M5 4L9 18L12 11L19 8Z"></path>
           </svg>
         </button>
+        <button id="toolFlip" class="toolBtn" type="button" title="${t('flipTool')}" aria-label="${t('flipTool')}">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 7H19"></path>
+            <path d="M15 3L19 7L15 11"></path>
+            <path d="M17 17H5"></path>
+            <path d="M9 13L5 17L9 21"></path>
+          </svg>
+        </button>
         <button id="toolCreate" class="toolBtn" type="button" title="${t('creationTool')}" aria-label="${t('creationTool')}">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M4 18L10 6L14 13L17 10L20 18"></path>
@@ -234,6 +242,11 @@ class MapToolbox extends HTMLElement {
 				this.emitToggle('select')
 			})
 		this.shadowRoot
+			.querySelector('#toolFlip')
+			.addEventListener('click', () => {
+				this.emitToggle('flip')
+			})
+		this.shadowRoot
 			.querySelector('#toolAnnotate')
 			.addEventListener('click', () => {
 				this.emitToggle('annotate')
@@ -290,6 +303,7 @@ class MapToolbox extends HTMLElement {
 		const isAnnotate = this.state.interactionMode === 'annotate'
 		const createBtn = this.shadowRoot.querySelector('#toolCreate')
 		const selectBtn = this.shadowRoot.querySelector('#toolSelect')
+		const flipBtn = this.shadowRoot.querySelector('#toolFlip')
 		const annotateBtn = this.shadowRoot.querySelector('#toolAnnotate')
 		const debugWaysBtn = this.shadowRoot.querySelector('#toolDebugWays')
 		const colorInput = this.shadowRoot.querySelector('#toolColorInput')
@@ -310,6 +324,8 @@ class MapToolbox extends HTMLElement {
 				'active',
 				this.state.interactionMode === 'select'
 			)
+		if (flipBtn)
+			flipBtn.classList.toggle('active', this.state.interactionMode === 'flip')
 		if (annotateBtn) annotateBtn.classList.toggle('active', isAnnotate)
 		if (debugWaysBtn)
 			debugWaysBtn.classList.toggle('active', !!this.state.debugShowWays)
