@@ -242,6 +242,17 @@ The map editor itself is centered around direct visual editing:
 
 ---
 
+## 🧪 Debug Tips
+
+Force the UI locale from the browser console:
+
+```js
+window.RouteCraftI18n.setLocale('en')
+window.RouteCraftI18n.setLocale('fr')
+```
+
+---
+
 ## 💾 Caching
 
 ### 1. Static spatial cache

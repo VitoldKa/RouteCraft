@@ -1,5 +1,6 @@
 import './map-toolbox.js'
 import './map-annotation-editor.js'
+import { t } from '../i18n.js'
 import { MapAnnotationLayer } from './map-annotation-layer.js'
 import {
 	getWays,
@@ -179,9 +180,9 @@ class OSMMap extends HTMLElement {
 
       <div class="shell">
         <map-toolbox></map-toolbox>
-        <button id="baseMapToggle" class="baseMapToggle" type="button" aria-label="Switch map view">
+        <button id="baseMapToggle" class="baseMapToggle" type="button" aria-label="${t('switchToView', { view: t('satellite').toLowerCase() })}">
           <span id="baseMapThumb" class="baseMapThumb satellite" aria-hidden="true"></span>
-          <span id="baseMapLabel" class="baseMapLabel">Satellite</span>
+          <span id="baseMapLabel" class="baseMapLabel">${t('satellite')}</span>
         </button>
         <map-annotation-editor></map-annotation-editor>
         <div id="map"></div>
@@ -1550,10 +1551,11 @@ class OSMMap extends HTMLElement {
 		const alternate = current === 'satellite' ? 'roadmap' : 'satellite'
 		this.$baseMapThumb.classList.toggle('satellite', alternate === 'satellite')
 		this.$baseMapThumb.classList.toggle('roadmap', alternate === 'roadmap')
-		this.$baseMapLabel.textContent = alternate === 'satellite' ? 'Satellite' : 'Map'
+		const viewLabel = alternate === 'satellite' ? t('satellite') : t('map')
+		this.$baseMapLabel.textContent = viewLabel
 		this.$baseMapToggle.setAttribute(
 			'aria-label',
-			`Switch to ${alternate === 'satellite' ? 'satellite' : 'map'} view`
+			t('switchToView', { view: viewLabel.toLowerCase() })
 		)
 	}
 
@@ -2781,8 +2783,7 @@ class OSMMap extends HTMLElement {
 		)
 
 		this.emitStatus({
-			pickStatus:
-				'Annotation ajoutée : double-clique la note pour modifier son texte.',
+			pickStatus: t('annotationAdded'),
 			error: null,
 		})
 	}

@@ -1,3 +1,5 @@
+import { t } from '../i18n.js'
+
 class JsonEditor extends HTMLElement {
 	constructor() {
 		super()
@@ -14,19 +16,19 @@ class JsonEditor extends HTMLElement {
 
 	get editorTitle() {
 		const value = this.getAttribute('title')
-		return value && value.trim() ? value.trim() : 'JSON'
+		return value && value.trim() ? value.trim() : t('json')
 	}
 
 	get editorMeta() {
 		const value = this.getAttribute('meta')
-		return value && value.trim() ? value.trim() : 'import/export'
+		return value && value.trim() ? value.trim() : t('jsonMeta')
 	}
 
 	get editorDescription() {
 		const value = this.getAttribute('description')
 		return value && value.trim()
 			? value.trim()
-			: 'Import/export, lint dans la marge'
+			: t('jsonDescription')
 	}
 
 	get isReadOnly() {
@@ -167,7 +169,7 @@ class JsonEditor extends HTMLElement {
 		if (!txt)
 			return {
 				ok: false,
-				errors: ['Champ JSON vide.'],
+				errors: [t('jsonEmpty')],
 				route: [],
 				annotations: [],
 			}
@@ -178,7 +180,7 @@ class JsonEditor extends HTMLElement {
 		} catch {
 			return {
 				ok: false,
-				errors: ['JSON invalide (syntaxe).'],
+				errors: [t('jsonInvalidSyntax')],
 				route: [],
 				annotations: [],
 			}
@@ -197,9 +199,7 @@ class JsonEditor extends HTMLElement {
 		) {
 			return {
 				ok: false,
-				errors: [
-					'Format attendu: {"route":[...], "annotations":[...]} ou [...]',
-				],
+				errors: [t('jsonFormatExpected')],
 				route: [],
 				annotations: [],
 			}
@@ -218,19 +218,19 @@ class JsonEditor extends HTMLElement {
 			const viaWrap = s?.viaWrap === true
 
 			if (!Number.isInteger(wayId) || wayId <= 0)
-				errors.push(`Segment #${i + 1}: wayId invalide`)
+				errors.push(t('jsonInvalidWayId', { index: i + 1 }))
 			if (!Number.isInteger(fromNode) || fromNode <= 0)
-				errors.push(`Segment #${i + 1}: fromNode invalide`)
+				errors.push(t('jsonInvalidFromNode', { index: i + 1 }))
 			if (!Number.isInteger(toNode) || toNode <= 0)
-				errors.push(`Segment #${i + 1}: toNode invalide`)
+				errors.push(t('jsonInvalidToNode', { index: i + 1 }))
 			if (
 				Number.isInteger(fromNode) &&
 				Number.isInteger(toNode) &&
 				fromNode === toNode
 			)
-				errors.push(`Segment #${i + 1}: fromNode == toNode`)
+				errors.push(t('jsonEqualNodes', { index: i + 1 }))
 			if (s?.color != null && color == null)
-				errors.push(`Segment #${i + 1}: color invalide (attendu: #RRGGBB)`)
+				errors.push(t('jsonInvalidColor', { index: i + 1 }))
 
 			if (
 				Number.isInteger(wayId) &&
@@ -257,19 +257,19 @@ class JsonEditor extends HTMLElement {
 			const color = this.normalizeSegmentColor(annotation?.color)
 			const fontSize = this.normalizeAnnotationFontSize(annotation?.fontSize)
 			if (!text) {
-				errors.push(`Annotation #${i + 1}: text invalide`)
+				errors.push(t('jsonAnnotationInvalidText', { index: i + 1 }))
 				return
 			}
 			if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-				errors.push(`Annotation #${i + 1}: lat/lon invalides`)
+				errors.push(t('jsonAnnotationInvalidLatLon', { index: i + 1 }))
 				return
 			}
 			if (annotation?.color != null && color == null) {
-				errors.push(`Annotation #${i + 1}: color invalide (attendu: #RRGGBB)`)
+				errors.push(t('jsonAnnotationInvalidColor', { index: i + 1 }))
 				return
 			}
 			if (annotation?.fontSize != null && fontSize == null) {
-				errors.push(`Annotation #${i + 1}: fontSize invalide (10-32)`)
+				errors.push(t('jsonAnnotationInvalidFontSize', { index: i + 1 }))
 				return
 			}
 			annotations.push({
@@ -286,7 +286,7 @@ class JsonEditor extends HTMLElement {
 		})
 
 		if (!out.length && !annotations.length)
-			errors.push('Aucun segment ni annotation valide trouvé.')
+			errors.push(t('jsonNoValidContent'))
 		return { ok: errors.length === 0, errors, route: out, annotations }
 	}
 
@@ -316,10 +316,7 @@ class JsonEditor extends HTMLElement {
 		const ok = await this.waitForGlobal('CodeMirror', 2000)
 		if (!ok) {
 			errBox.style.display = 'block'
-			errBox.textContent =
-				"CodeMirror n'est pas disponible.\n" +
-				'Vérifie que les scripts CodeMirror sont bien chargés AVANT app.js dans index.html.\n' +
-				"Ex: <script src='.../codemirror.min.js'></script> puis <script type='module' src='app.js'></script>"
+			errBox.textContent = t('codeMirrorMissing')
 			return
 		}
 

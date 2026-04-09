@@ -1,3 +1,5 @@
+import { t } from '../i18n.js'
+
 class MapAnnotationEditor extends HTMLElement {
 	constructor() {
 		super()
@@ -90,10 +92,10 @@ class MapAnnotationEditor extends HTMLElement {
         }
       </style>
       <div id="editor" class="editor">
-        <textarea id="textarea" class="textarea" aria-label="Edit annotation text" spellcheck="false"></textarea>
+        <textarea id="textarea" class="textarea" aria-label="${t('editAnnotationText')}" spellcheck="false"></textarea>
         <div class="actions">
-          <button id="cancel" class="btn secondary" type="button">Cancel</button>
-          <button id="save" class="btn primary" type="button">Save</button>
+          <button id="cancel" class="btn secondary" type="button">${t('cancel')}</button>
+          <button id="save" class="btn primary" type="button">${t('save')}</button>
         </div>
       </div>
     `

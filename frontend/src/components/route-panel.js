@@ -1,3 +1,5 @@
+import { t } from '../i18n.js'
+
 class RoutePanel extends HTMLElement {
 	constructor() {
 		super()
@@ -7,8 +9,8 @@ class RoutePanel extends HTMLElement {
 			strict: true,
 			autoLoad: true,
 			lastError: null,
-			pickStatus: 'Aucun point',
-			ioStatus: { kind: 'ok', text: 'Synchronisé' },
+			pickStatus: t('initialPickStatus'),
+			ioStatus: { kind: 'ok', text: t('statusSynchronized') },
 			dirty: false,
 			selectedIndex: -1,
 			segmentsExpanded: false,
@@ -118,43 +120,43 @@ class RoutePanel extends HTMLElement {
       </style>
 
       <div class="panel">
-        <h3>OSM Route Editor</h3>
+        <h3>${t('appTitle')}</h3>
         <div class="muted">
-          Focus mode : clique un segment pour afficher ses handles Start/End (clique à nouveau pour désélectionner).
+          ${t('focusModeHelp')}
         </div>
 
         <div class="row">
           <label class="row" style="gap:6px;">
             <input id="autoLoad" type="checkbox" ${s.autoLoad ? 'checked' : ''}/>
-            <span>Charger la zone visible</span>
+            <span>${t('loadVisibleArea')}</span>
           </label>
 
           <label class="row" style="gap:6px;">
             <input id="strict" type="checkbox" ${s.strict ? 'checked' : ''}/>
-            <span>Continuité stricte</span>
+            <span>${t('strictContinuity')}</span>
           </label>
         </div>
 
         <div class="row">
-          <button id="reload">Recharger (bbox)</button>
-          <button id="clear">Vider</button>
+          <button id="reload">${t('reloadBbox')}</button>
+          <button id="clear">${t('clear')}</button>
         </div>
 
         <div class="grid2">
           <div class="muted">
-            <div><strong>Statut sélection</strong></div>
+            <div><strong>${t('selectionStatus')}</strong></div>
             <div class="pill">${s.pickStatus}</div>
           </div>
           <div class="muted">
-            <div><strong>Dernière erreur</strong></div>
+            <div><strong>${t('lastError')}</strong></div>
             <div id="err" class="pill danger" style="${errStyle}">${s.lastError || ''}</div>
           </div>
         </div>
 
         <details id="segmentsSection" class="segmentSection" ${s.segmentsExpanded ? 'open' : ''}>
           <summary class="segmentSummary">
-            <span>Itinéraire (tronçons)</span>
-            <span class="segmentMeta">${s.route.length} segment${s.route.length > 1 ? 's' : ''}</span>
+            <span>${t('routeSegments')}</span>
+            <span class="segmentMeta">${t('segmentCount', { count: s.route.length })}</span>
           </summary>
           <div class="segmentBody">
             <div class="list" id="list"></div>
@@ -162,16 +164,16 @@ class RoutePanel extends HTMLElement {
         </details>
 
         <div class="row" style="margin-top:12px;">
-        <button id="import">Importer</button>
-          <button id="export">Exporter</button>
-          <button id="exportDrawable">Exporter dessin</button>
-          <button id="loadFromRoute">Charger les ways</button>
-          <button id="format" class="small">Formater JSON</button>
+        <button id="import">${t('import')}</button>
+          <button id="export">${t('export')}</button>
+          <button id="exportDrawable">${t('exportDrawable')}</button>
+          <button id="loadFromRoute">${t('loadWays')}</button>
+          <button id="format" class="small">${t('formatJson')}</button>
         </div>
 
         <div class="row">
           <span class="pill ${ioClass}">${ioText}</span>
-          ${s.dirty ? `<span class="pill warn">Non appliqué</span>` : ``}
+          ${s.dirty ? `<span class="pill warn">${t('unapplied')}</span>` : ``}
         </div>
       </div>
     `
@@ -235,8 +237,8 @@ class RoutePanel extends HTMLElement {
         <div class="itemTop">
           <div>
             <strong>${idx + 1}.</strong> way ${seg.wayId}<br>
-            <span class="muted">from</span> <code>${seg.fromNode}</code> <span class="muted">→ to</span> <code>${seg.toNode}</code>
-            ${seg.color ? `<br><button class="swatchBtn muted" data-act="pick-color" aria-label="Use ${seg.color} as current color"><span class="swatch" style="background:${seg.color}"></span>${seg.color}</button>` : ``}
+            <span class="muted">${t('from')}</span> <code>${seg.fromNode}</code> <span class="muted">→ ${t('to')}</span> <code>${seg.toNode}</code>
+            ${seg.color ? `<br><button class="swatchBtn muted" data-act="pick-color" aria-label="${t('useCurrentColor', { color: seg.color })}"><span class="swatch" style="background:${seg.color}"></span>${seg.color}</button>` : ``}
           </div>
           <div style="display:flex; gap:6px; align-items:center;">
             <button class="small" data-act="up">↑</button>

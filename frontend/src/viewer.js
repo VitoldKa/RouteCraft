@@ -1,4 +1,5 @@
 import './components/osm-map.js'
+import { t } from './i18n.js'
 
 class OSMRouteViewer extends HTMLElement {
 	constructor() {
@@ -51,17 +52,15 @@ class OSMRouteViewer extends HTMLElement {
 	readStaticJSON() {
 		const tag = document.getElementById('route-json')
 		if (!tag)
-			throw new Error(
-				"Balise <script id='route-json' type='application/json'> introuvable."
-			)
+			throw new Error(t('viewerMissingTag'))
 		const txt = tag.textContent.trim()
-		if (!txt) throw new Error('route-json est vide.')
+		if (!txt) throw new Error(t('viewerEmptyTag'))
 
 		let obj
 		try {
 			obj = JSON.parse(txt)
 		} catch {
-			throw new Error('JSON invalide dans route-json.')
+			throw new Error(t('viewerInvalidJson'))
 		}
 
 		const arr = Array.isArray(obj) ? obj : Array.isArray(obj?.route) ? obj.route : []
@@ -98,9 +97,7 @@ class OSMRouteViewer extends HTMLElement {
 		const bounds = this.normalizeBounds(obj?.bounds)
 
 		if (!route.length && !primitives.length && !annotations.length) {
-			throw new Error(
-				'Format attendu: {"route":[...]} ou {"route":[...], "primitives":[...]}'
-			)
+			throw new Error(t('viewerFormatExpected'))
 		}
 		return { obj, route, annotations, primitives, bounds }
 	}
@@ -120,17 +117,17 @@ class OSMRouteViewer extends HTMLElement {
 			this.$map.setAnnotations([])
 			this.$map.setDrawablePrimitives(this.primitives)
 			this.zoomOnRoute()
-			this.setStatus('OK (autonome)')
+			this.setStatus(t('viewerOkAutonomous'))
 			return
 		}
 
-		this.setStatus('Chargement des ways…')
+		this.setStatus(t('viewerLoadingWays'))
 
 		await this.$map.loadWaysByIds(this.route.map((s) => s.wayId))
 		this.$map.setDrawablePrimitives([])
 		this.$map.setRoute(this.route)
 		this.zoomOnRoute()
-		this.setStatus('OK')
+		this.setStatus(t('viewerOk'))
 	}
 
 	zoomOnRoute() {

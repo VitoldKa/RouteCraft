@@ -1,3 +1,5 @@
+import { t } from '../i18n.js'
+
 class MapToolbox extends HTMLElement {
 	constructor() {
 		super()
@@ -168,13 +170,13 @@ class MapToolbox extends HTMLElement {
       </style>
 
       <div class="toolbox" aria-label="Map tools">
-        <button id="toolSelect" class="toolBtn" type="button" title="Selection tool" aria-label="Selection tool">
+        <button id="toolSelect" class="toolBtn" type="button" title="${t('selectionTool')}" aria-label="${t('selectionTool')}">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M5 4L16 15"></path>
             <path d="M5 4L9 18L12 11L19 8Z"></path>
           </svg>
         </button>
-        <button id="toolCreate" class="toolBtn" type="button" title="Creation tool" aria-label="Creation tool">
+        <button id="toolCreate" class="toolBtn" type="button" title="${t('creationTool')}" aria-label="${t('creationTool')}">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M4 18L10 6L14 13L17 10L20 18"></path>
             <path d="M6 18H20"></path>
@@ -182,14 +184,14 @@ class MapToolbox extends HTMLElement {
             <path d="M16 6H20"></path>
           </svg>
         </button>
-        <button id="toolAnnotate" class="toolBtn" type="button" title="Text annotation tool" aria-label="Text annotation tool">
+        <button id="toolAnnotate" class="toolBtn" type="button" title="${t('textAnnotationTool')}" aria-label="${t('textAnnotationTool')}">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M5 6H19"></path>
             <path d="M12 6V18"></path>
             <path d="M9 18H15"></path>
           </svg>
         </button>
-        <button id="toolDebugWays" class="toolBtn" type="button" title="Debug: draw loaded ways in viewport" aria-label="Debug: draw loaded ways in viewport">
+        <button id="toolDebugWays" class="toolBtn" type="button" title="${t('debugWaysTool')}" aria-label="${t('debugWaysTool')}">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M4 18L8 12L11 14L16 7L20 10"></path>
             <path d="M4 6H10"></path>
@@ -198,22 +200,22 @@ class MapToolbox extends HTMLElement {
         </button>
         <div class="toolColor">
           <div class="toolColorTop">
-            <input id="toolColorInput" class="toolColorSwatch" type="color" value="#0060DD" aria-label="Drawing color">
+            <input id="toolColorInput" class="toolColorSwatch" type="color" value="#0060DD" aria-label="${t('drawingColor')}">
             <div class="toolColorMeta">
-              <div class="toolColorLabel">Color</div>
+              <div class="toolColorLabel">${t('color')}</div>
               <div id="toolColorValue" class="toolColorValue">#0060DD</div>
             </div>
           </div>
         </div>
         <div class="annotationBox">
-          <div class="annotationTitle">Annotation</div>
-          <div id="annotationHint" class="annotationHint" style="display:none;">Switch to annotation mode and click the map to place a note, then double-click it to edit the text.</div>
+          <div class="annotationTitle">${t('annotation')}</div>
+          <div id="annotationHint" class="annotationHint" style="display:none;">${t('annotationPlacementHint')}</div>
           <div class="annotationRow">
-            <input id="annotationFontSize" class="annotationNumber" type="number" min="10" max="32" step="1" value="12" aria-label="Annotation font size">
+            <input id="annotationFontSize" class="annotationNumber" type="number" min="10" max="32" step="1" value="12" aria-label="${t('annotationFontSize')}">
           </div>
           <div class="annotationRow">
-            <button id="annotationNew" class="annotationBtn primary" type="button">New</button>
-            <button id="annotationDelete" class="annotationBtn danger" type="button">Delete</button>
+            <button id="annotationNew" class="annotationBtn primary" type="button">${t('new')}</button>
+            <button id="annotationDelete" class="annotationBtn danger" type="button">${t('delete')}</button>
           </div>
         </div>
       </div>
@@ -299,6 +301,7 @@ class MapToolbox extends HTMLElement {
 			'#annotationFontSize'
 		)
 		const annotationHint = this.shadowRoot.querySelector('#annotationHint')
+		const annotationNew = this.shadowRoot.querySelector('#annotationNew')
 		const annotationDelete = this.shadowRoot.querySelector('#annotationDelete')
 
 		if (createBtn) createBtn.classList.toggle('active', isCreate)
@@ -316,11 +319,14 @@ class MapToolbox extends HTMLElement {
 			annotationFontSize.value = String(annotationDraft.fontSize)
 		if (annotationHint) {
 			annotationHint.textContent = this.state.editingAnnotationId
-				? 'Double-click editing active on the map. Click outside the note to save.'
+				? t('annotationEditingHint')
 				: this.state.selectedAnnotationId
-					? 'Selected note: double-click it to edit text, or drag it to move.'
-					: 'In annotation mode, click the map to place a note, then double-click it to edit.'
+					? t('annotationSelectedHint')
+					: t('annotationPlacementHint')
 		}
+		if (annotationNew) annotationNew.textContent = t('new')
+		if (annotationDelete)
+			annotationDelete.textContent = t('delete')
 		if (annotationDelete)
 			annotationDelete.disabled = !this.state.selectedAnnotationId
 	}

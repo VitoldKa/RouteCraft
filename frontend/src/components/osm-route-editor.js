@@ -1,6 +1,7 @@
 import './osm-map.js'
 import './route-panel.js'
 import './json-editor.js'
+import { t } from '../i18n.js'
 
 class OSMRouteEditor extends HTMLElement {
 	constructor() {
@@ -26,8 +27,8 @@ class OSMRouteEditor extends HTMLElement {
 			editingAnnotationId: null,
 			annotationDraft: { text: '', color: '#0060DD', fontSize: 12 },
 			lastError: null,
-			ioStatus: { kind: 'ok', text: 'Synchronisé' },
-			pickStatus: 'Aucun point',
+			ioStatus: { kind: 'ok', text: t('statusSynchronized') },
+			pickStatus: t('initialPickStatus'),
 			dirty: false,
 			selectedIndex: -1, // focus mode
 		}
@@ -53,9 +54,9 @@ class OSMRouteEditor extends HTMLElement {
             <json-editor></json-editor>
             <json-editor
               id="drawableJson"
-              title="JSON dessin"
-              meta="export drawable"
-              description="Sortie en primitives prêtes à dessiner"
+              title="${t('drawableJson')}"
+              meta="${t('drawableJsonMeta')}"
+              description="${t('drawableJsonDescription')}"
               readonly
             ></json-editor>
           </div>
@@ -80,10 +81,10 @@ class OSMRouteEditor extends HTMLElement {
 					value === 'select' || value === 'annotate' ? value : 'create'
 				this.ui.pickStatus =
 					this.ui.interactionMode === 'select'
-						? 'Mode sélection : clique un segment existant sur la carte ou dans la liste.'
+						? t('modeSelect')
 						: this.ui.interactionMode === 'annotate'
-							? 'Mode annotation : clique sur la carte pour poser une note.'
-							: 'Mode création : clique sur la carte pour ajouter un tronçon.'
+							? t('modeAnnotate')
+							: t('modeCreate')
 			}
 			if (name === 'debugShowWays') this.ui.debugShowWays = !!value
 			this.renderPanel()
@@ -107,7 +108,7 @@ class OSMRouteEditor extends HTMLElement {
 				this.route = []
 				this.annotations = []
 				this.ui.lastError = null
-				this.ui.pickStatus = 'Aucun point'
+				this.ui.pickStatus = t('initialPickStatus')
 				this.ui.selectedIndex = -1
 				this.ui.selectedAnnotationId = null
 				this.ui.editingAnnotationId = null
@@ -138,7 +139,7 @@ class OSMRouteEditor extends HTMLElement {
 				this.renderAll()
 				this.$json.setJSON(this.buildFullExport())
 				this.ui.dirty = false
-				this.ui.ioStatus = { kind: 'ok', text: 'Synchronisé' }
+				this.ui.ioStatus = { kind: 'ok', text: t('statusSynchronized') }
 				this.renderPanel()
 				return
 			}
@@ -155,7 +156,7 @@ class OSMRouteEditor extends HTMLElement {
 				}
 				this.$drawableJson.setJSON(drawable)
 				this.ui.dirty = false
-				this.ui.ioStatus = { kind: 'ok', text: 'Export dessin prêt' }
+				this.ui.ioStatus = { kind: 'ok', text: t('statusExportReady') }
 				this.renderPanel()
 				return
 			}
@@ -265,10 +266,10 @@ class OSMRouteEditor extends HTMLElement {
 					value === 'select' || value === 'annotate' ? value : 'create'
 				this.ui.pickStatus =
 					this.ui.interactionMode === 'select'
-						? 'Mode sélection : clique un segment existant sur la carte ou dans la liste.'
+						? t('modeSelect')
 						: this.ui.interactionMode === 'annotate'
-							? 'Mode annotation : clique sur la carte pour poser une note.'
-							: 'Mode création : clique sur la carte pour ajouter un tronçon.'
+							? t('modeAnnotate')
+							: t('modeCreate')
 			} else if (name === 'debugShowWays') {
 				this.ui.debugShowWays = !!value
 			} else {
@@ -388,7 +389,7 @@ class OSMRouteEditor extends HTMLElement {
 			this.ui.annotationDraft = this.annotationToDraft(annotation)
 			this.ui.interactionMode = 'annotate'
 			this.ui.pickStatus =
-				'Mode annotation : double-clique la note pour éditer le texte, ou glisse-la pour la déplacer.'
+				t('annotationModeHint')
 			this.renderAll()
 		})
 
@@ -402,7 +403,7 @@ class OSMRouteEditor extends HTMLElement {
 			this.ui.annotationDraft = this.annotationToDraft(annotation)
 			this.ui.interactionMode = 'annotate'
 			this.ui.pickStatus =
-				'Édition annotation : modifie le texte dans la bulle sur la carte, puis clique Save ou Cancel.'
+				t('annotationEditHint')
 			this.renderAll()
 		})
 
@@ -510,9 +511,9 @@ class OSMRouteEditor extends HTMLElement {
 			this.ui.dirty = dirty
 			this.ui.ioStatus = valid
 				? dirty
-					? { kind: 'warn', text: 'Modifié (valide)' }
-					: { kind: 'ok', text: 'Synchronisé' }
-				: { kind: 'danger', text: 'Invalide' }
+				? { kind: 'warn', text: t('statusModifiedValid') }
+					: { kind: 'ok', text: t('statusSynchronized') }
+				: { kind: 'danger', text: t('statusInvalid') }
 			this.renderPanel()
 		})
 
@@ -909,8 +910,9 @@ class OSMRouteEditor extends HTMLElement {
 
 		if (missing.length > 0) {
 			this.ui.lastError =
-				'Export dessin incomplet: géométrie introuvable pour ' +
-				missing.slice(0, 6).join(', ')
+				t('drawableExportIncomplete', {
+					items: missing.slice(0, 6).join(', '),
+				})
 			return null
 		}
 
@@ -1041,7 +1043,7 @@ class OSMRouteEditor extends HTMLElement {
 			.find(Boolean)
 		if (lastColored) this.ui.lastSegmentColor = lastColored
 		this.ui.lastError = null
-		this.ui.pickStatus = 'Aucun point'
+		this.ui.pickStatus = t('initialPickStatus')
 		this.ui.selectedIndex = -1
 		this.ui.selectedAnnotationId = null
 		this.ui.editingAnnotationId = null
