@@ -41,6 +41,80 @@ struct Config
     std::uint64_t progress_interval_ms = 500;
 };
 
+class HelpRequested : public std::runtime_error
+{
+public:
+    using std::runtime_error::runtime_error;
+};
+
+static std::string cli_program_name(const char *argv0)
+{
+    const fs::path path = argv0 ? fs::path(argv0) : fs::path("phase2_spatial_compact");
+    const std::string name = path.filename().string();
+    return name.empty() ? "phase2_spatial_compact" : name;
+}
+
+static std::string build_help_text(const std::string &program_name)
+{
+    std::ostringstream out;
+    out << "Compact the intermediate spatial cache into frontend-ready JSON shards.\n"
+        << "\n"
+        << "This phase reads the temporary output from phase 1, merges duplicate\n"
+        << "records per tile, and writes the final sharded cache consumed by the app.\n"
+        << "\n"
+        << "Usage:\n"
+        << "  " << program_name << " [options]\n"
+        << "\n"
+        << "Options:\n"
+        << "  --in-dir DIR\n"
+        << "      Input directory produced by phase 1.\n"
+        << "      Default: tmp_spatial\n"
+        << "\n"
+        << "  --out-dir DIR\n"
+        << "      Output directory for the compacted cache.\n"
+        << "      Default: spatial_cache\n"
+        << "\n"
+        << "  --threads N\n"
+        << "      Number of worker threads.\n"
+        << "      Use 0 to auto-select based on available CPU cores.\n"
+        << "      Default: 0\n"
+        << "\n"
+        << "  --queue-capacity N\n"
+        << "      Maximum number of pending jobs in the work queues.\n"
+        << "      Default: 8192\n"
+        << "\n"
+        << "  --progress-interval-ms N\n"
+        << "      Minimum delay between live progress updates in milliseconds.\n"
+        << "      Default: 500\n"
+        << "\n"
+        << "  -h, --help\n"
+        << "      Show this help message.\n"
+        << "\n"
+        << "Behavior:\n"
+        << "  - Reads phase 1 metadata from <in-dir>/phase1_config.json.\n"
+        << "  - Reuses phase 1 bbox size, tile size, precision, and timestamps.\n"
+        << "  - Reuses phase 1 tile counts to show live compaction progress.\n"
+        << "  - Copies phase 1 metadata into the final cache output.\n"
+        << "  - Writes <out-dir>/phase2_config.json with compaction stats.\n"
+        << "\n"
+        << "Outputs:\n"
+        << "  <out-dir>/bbox-index/\n"
+        << "      Final sharded bbox index JSON files.\n"
+        << "  <out-dir>/content-tiles/\n"
+        << "      Final sharded way/node payload JSON files.\n"
+        << "  <out-dir>/phase1_config.json\n"
+        << "      Phase 1 metadata copied forward when present.\n"
+        << "  <out-dir>/phase2_config.json\n"
+        << "      Metadata describing the compaction run and output counts.\n"
+        << "\n"
+        << "Examples:\n"
+        << "  " << program_name << "\n"
+        << "  " << program_name << " --in-dir tmp_spatial --out-dir spatial_cache\n"
+        << "  " << program_name << " --in-dir tmp_spatial --out-dir spatial_cache --threads 8\n"
+        << "  " << program_name << " --progress-interval-ms 200\n";
+    return out.str();
+}
+
 struct TileId
 {
     long yi = 0;
@@ -126,6 +200,10 @@ struct Phase1Stats
     std::optional<std::uint64_t> bbox_refs_written;
     std::optional<std::uint64_t> bbox_tile_count;
     std::optional<std::uint64_t> content_tile_count;
+    std::optional<std::uint64_t> written_at;
+    std::optional<double> bbox_size;
+    std::optional<double> tile_size;
+    std::optional<int> precision;
 };
 
 struct ProgressState
@@ -427,6 +505,38 @@ static std::optional<long> extract_long_field(std::string_view line, std::string
     return neg ? -v : v;
 }
 
+static std::optional<double> extract_double_field(std::string_view line, std::string_view field)
+{
+    const std::string needle = "\"" + std::string(field) + "\":";
+    const auto pos = line.find(needle);
+    if (pos == std::string_view::npos) return std::nullopt;
+
+    std::size_t i = pos + needle.size();
+    while (i < line.size() && std::isspace(static_cast<unsigned char>(line[i]))) ++i;
+
+    std::size_t end = i;
+    if (end < line.size() && (line[end] == '-' || line[end] == '+')) ++end;
+    while (end < line.size())
+    {
+        const unsigned char c = static_cast<unsigned char>(line[end]);
+        if (std::isdigit(c) || c == '.' || c == 'e' || c == 'E' || c == '-' || c == '+')
+            ++end;
+        else
+            break;
+    }
+
+    if (end == i) return std::nullopt;
+
+    try
+    {
+        return std::stod(std::string(line.substr(i, end - i)));
+    }
+    catch (...)
+    {
+        return std::nullopt;
+    }
+}
+
 static Phase1Stats read_phase1_stats(const Config &cfg)
 {
     const fs::path path = fs::path(cfg.in_dir) / "phase1_config.json";
@@ -449,6 +559,17 @@ static Phase1Stats read_phase1_stats(const Config &cfg)
             stats.bbox_tile_count = extract_uint_field(line, "bboxTileCount");
         if (!stats.content_tile_count)
             stats.content_tile_count = extract_uint_field(line, "contentTileCount");
+        if (!stats.written_at)
+            stats.written_at = extract_uint_field(line, "writtenAt");
+        if (!stats.bbox_size)
+            stats.bbox_size = extract_double_field(line, "bboxSize");
+        if (!stats.tile_size)
+            stats.tile_size = extract_double_field(line, "tileSize");
+        if (!stats.precision)
+        {
+            const auto p = extract_uint_field(line, "precision");
+            if (p) stats.precision = static_cast<int>(*p);
+        }
     }
 
     return stats;
@@ -460,6 +581,12 @@ static void print_phase1_stats_summary(const Phase1Stats &stats)
         return;
 
     std::cerr << "Phase 1 metadata:";
+    if (stats.bbox_size)
+        std::cerr << " bboxSize=" << *stats.bbox_size;
+    if (stats.tile_size)
+        std::cerr << " tileSize=" << *stats.tile_size;
+    if (stats.precision)
+        std::cerr << " precision=" << *stats.precision;
     if (stats.ways_matched)
         std::cerr << " waysMatched=" << *stats.ways_matched;
     if (stats.bbox_refs_written)
@@ -469,6 +596,23 @@ static void print_phase1_stats_summary(const Phase1Stats &stats)
     if (stats.content_tile_count)
         std::cerr << " contentTileCount=" << *stats.content_tile_count;
     std::cerr << "\n";
+}
+
+static void apply_phase1_config_defaults(
+    Config &cfg,
+    const Phase1Stats &phase1_stats,
+    std::uint64_t fallback_time_ms)
+{
+    if (phase1_stats.bbox_size)
+        cfg.bbox_size = *phase1_stats.bbox_size;
+    if (phase1_stats.tile_size)
+        cfg.tile_size = *phase1_stats.tile_size;
+    if (phase1_stats.precision)
+        cfg.precision = *phase1_stats.precision;
+
+    const std::uint64_t derived_time = phase1_stats.written_at.value_or(fallback_time_ms);
+    cfg.created_at = derived_time;
+    cfg.fetched_at = derived_time;
 }
 
 static void warn_if_phase1_counts_differ(const Phase1Stats &phase1_stats, const RunStats &run_stats)
@@ -867,7 +1011,7 @@ static void write_phase2_metadata(
     fs::rename(tmp_path, path);
 }
 
-static Config parse_args(int argc, char **argv)
+static Config parse_args(int argc, char **argv, const std::string &program_name)
 {
     Config cfg;
 
@@ -882,20 +1026,12 @@ static Config parse_args(int argc, char **argv)
             return argv[++i];
         };
 
-        if (arg == "--in-dir")
+        if (arg == "-h" || arg == "--help")
+            throw HelpRequested(build_help_text(program_name));
+        else if (arg == "--in-dir")
             cfg.in_dir = need("--in-dir");
         else if (arg == "--out-dir")
             cfg.out_dir = need("--out-dir");
-        else if (arg == "--created-at")
-            cfg.created_at = std::stoull(need("--created-at"));
-        else if (arg == "--fetched-at")
-            cfg.fetched_at = std::stoull(need("--fetched-at"));
-        else if (arg == "--bbox-size")
-            cfg.bbox_size = std::stod(need("--bbox-size"));
-        else if (arg == "--tile-size")
-            cfg.tile_size = std::stod(need("--tile-size"));
-        else if (arg == "--precision")
-            cfg.precision = std::stoi(need("--precision"));
         else if (arg == "--threads")
             cfg.worker_threads = static_cast<std::size_t>(std::stoull(need("--threads")));
         else if (arg == "--queue-capacity")
@@ -905,9 +1041,6 @@ static Config parse_args(int argc, char **argv)
         else
             throw std::runtime_error("Argument inconnu: " + arg);
     }
-
-    if (cfg.created_at == 0) cfg.created_at = cfg.fetched_at;
-    if (cfg.fetched_at == 0) cfg.fetched_at = cfg.created_at;
 
     if (cfg.bbox_size <= 0.0 || cfg.tile_size <= 0.0)
         throw std::runtime_error("--bbox-size et --tile-size doivent etre > 0");
@@ -928,7 +1061,17 @@ int main(int argc, char **argv)
 {
     try
     {
-        const Config cfg = parse_args(argc, argv);
+        if (argc > 1)
+        {
+            const std::string_view first = argv[1] ? std::string_view(argv[1]) : std::string_view();
+            if (first == "-h" || first == "--help")
+            {
+                std::cout << build_help_text(cli_program_name(argv[0]));
+                return 0;
+            }
+        }
+
+        Config cfg = parse_args(argc, argv, cli_program_name(argv[0]));
         const auto started_clock = std::chrono::steady_clock::now();
         const std::uint64_t started_at_ms = unix_time_ms();
         const std::string started_at_iso = iso_utc_now();
@@ -943,6 +1086,13 @@ int main(int argc, char **argv)
         const fs::path bbox_in = fs::path(cfg.in_dir) / "bbox_index";
         const fs::path content_in = fs::path(cfg.in_dir) / "content_tiles";
         const Phase1Stats phase1_stats = read_phase1_stats(cfg);
+        apply_phase1_config_defaults(cfg, phase1_stats, started_at_ms);
+
+        if (!phase1_stats.loaded)
+        {
+            std::cerr << "Warning: phase1_config.json not found in " << cfg.in_dir
+                      << "; using built-in defaults for layout and timestamps\n";
+        }
 
         std::vector<Job> jobs;
         jobs.reserve(200000);
@@ -1103,6 +1253,11 @@ int main(int argc, char **argv)
 
         std::cerr << "Phase 2 terminee.\n";
         std::cerr << "Sortie: " << cfg.out_dir << "\n";
+        return 0;
+    }
+    catch (const HelpRequested &help)
+    {
+        std::cout << help.what();
         return 0;
     }
     catch (const std::exception &e)
