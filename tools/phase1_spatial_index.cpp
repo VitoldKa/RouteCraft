@@ -1088,6 +1088,243 @@ static Config parse_args(int argc, char **argv)
     return cfg;
 }
 
+struct AtomicRunCounters
+{
+    std::atomic<std::uint64_t> ways_seen{0};
+    std::atomic<std::uint64_t> nodes_seen{0};
+    std::atomic<std::uint64_t> ways_matched{0};
+    std::atomic<std::uint64_t> seq_counter{0};
+    std::atomic<std::uint64_t> total_bbox_refs_written{0};
+};
+
+struct Phase1RunResult
+{
+    std::uint64_t started_at_ms = 0;
+    std::string started_at_iso;
+    std::uint64_t finished_at_ms = 0;
+    std::string finished_at_iso;
+    std::uint64_t duration_ms = 0;
+    std::uint64_t nodes_scanned = 0;
+    std::uint64_t ways_scanned = 0;
+    std::uint64_t ways_matched = 0;
+    std::uint64_t bbox_refs_written = 0;
+};
+
+static void maybe_run_precount(const Config &cfg, ProgressState &progress_state)
+{
+    if (cfg.progress_mode != Config::ProgressMode::count)
+        return;
+
+    std::cerr << "Pre-counting nodes and ways for accurate progress...\n";
+    std::atomic<std::uint64_t> total_nodes{0};
+    std::atomic<std::uint64_t> total_ways{0};
+    CountOnlyHandler counter(total_nodes, total_ways);
+
+    osmium::io::File count_file{cfg.input_file};
+    osmium::io::Reader count_reader{
+        count_file,
+        osmium::osm_entity_bits::node | osmium::osm_entity_bits::way};
+
+    while (auto buffer = count_reader.read())
+    {
+        osmium::apply(buffer, counter);
+    }
+    count_reader.close();
+
+    progress_state.total_nodes.store(total_nodes.load(), std::memory_order_relaxed);
+    progress_state.total_ways.store(total_ways.load(), std::memory_order_relaxed);
+
+    std::cerr << "Pre-count complete: nodes=" << total_nodes.load()
+              << ", ways=" << total_ways.load() << "\n";
+}
+
+static void print_phase1_startup_summary(const Config &cfg)
+{
+    std::cerr << "Reading input: " << cfg.input_file << "\n";
+    std::cerr << "Output directory: " << cfg.out_dir << "\n";
+    std::cerr << "bbox-size=" << cfg.bbox_size
+              << " | tile-size=" << cfg.tile_size
+              << " | threads=" << cfg.worker_threads
+              << " | queue-capacity=" << cfg.queue_capacity
+              << " | flush-every=" << cfg.flush_every << "\n";
+}
+
+static void print_phase1_completion_summary(const Phase1RunResult &result)
+{
+    std::cerr << "Phase 1 complete.\n";
+    std::cerr << "- nodes scanned: " << result.nodes_scanned << "\n";
+    std::cerr << "- ways scanned: " << result.ways_scanned << "\n";
+    std::cerr << "- ways matched: " << result.ways_matched << "\n";
+    std::cerr << "- bbox refs written: " << result.bbox_refs_written << "\n";
+}
+
+static Phase1RunResult run_phase1_pipeline(const Config &cfg)
+{
+    const auto started_clock = std::chrono::steady_clock::now();
+    const std::uint64_t started_at_ms = spatial_metadata::unix_time_ms();
+    const std::string started_at_iso = spatial_metadata::iso_utc_now();
+
+    ProgressState progress_state;
+    AtomicRunCounters counters;
+
+    maybe_run_precount(cfg, progress_state);
+
+    BlockingQueue<WorkItem> work_queue(cfg.queue_capacity);
+    BlockingQueue<WorkerResult> result_queue(cfg.queue_capacity);
+
+    print_phase1_startup_summary(cfg);
+
+    std::thread writer_thread(
+        writer_loop,
+        std::cref(cfg),
+        std::ref(result_queue),
+        std::ref(counters.total_bbox_refs_written),
+        cfg.progress_mode == Config::ProgressMode::none ? nullptr : &progress_state);
+
+    std::vector<std::thread> workers;
+    workers.reserve(cfg.worker_threads);
+    for (std::size_t i = 0; i < cfg.worker_threads; ++i)
+    {
+        workers.emplace_back(
+            worker_loop,
+            std::cref(cfg),
+            std::ref(work_queue),
+            std::ref(result_queue));
+    }
+
+    using index_type =
+        osmium::index::map::SparseMemArray<osmium::unsigned_object_id_type, osmium::Location>;
+    using location_handler_type =
+        osmium::handler::NodeLocationsForWays<index_type>;
+
+    osmium::io::File infile{cfg.input_file};
+    osmium::io::Reader reader{
+        infile,
+        osmium::osm_entity_bits::node | osmium::osm_entity_bits::way};
+
+    index_type index;
+    location_handler_type location_handler{index};
+    location_handler.ignore_errors();
+
+    progress_state.file_size.store(reader.file_size(), std::memory_order_relaxed);
+    ProducerHandler producer(
+        work_queue,
+        counters.nodes_seen,
+        counters.ways_seen,
+        counters.ways_matched,
+        counters.seq_counter);
+
+    auto last_progress_update = std::chrono::steady_clock::now();
+    while (auto buffer = reader.read())
+    {
+        osmium::apply(buffer, location_handler, producer);
+
+        progress_state.bytes_read.store(reader.offset(), std::memory_order_relaxed);
+        progress_state.nodes_seen.store(counters.nodes_seen.load(), std::memory_order_relaxed);
+        progress_state.ways_seen.store(counters.ways_seen.load(), std::memory_order_relaxed);
+        progress_state.ways_matched.store(counters.ways_matched.load(), std::memory_order_relaxed);
+
+        if (cfg.progress_mode != Config::ProgressMode::none)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        now - last_progress_update)
+                                        .count();
+            if (elapsed_ms >= static_cast<long long>(cfg.progress_interval_ms))
+            {
+                print_progress_line(cfg, progress_state);
+                last_progress_update = now;
+            }
+        }
+    }
+    reader.close();
+
+    progress_state.bytes_read.store(reader.offset(), std::memory_order_relaxed);
+    progress_state.nodes_seen.store(counters.nodes_seen.load(), std::memory_order_relaxed);
+    progress_state.ways_seen.store(counters.ways_seen.load(), std::memory_order_relaxed);
+    progress_state.ways_matched.store(counters.ways_matched.load(), std::memory_order_relaxed);
+
+    work_queue.close();
+
+    for (auto &t : workers)
+        t.join();
+
+    result_queue.close();
+    writer_thread.join();
+
+    if (cfg.progress_mode != Config::ProgressMode::none)
+    {
+        progress_state.ways_written.store(counters.ways_matched.load(), std::memory_order_relaxed);
+        progress_state.bbox_refs_written.store(
+            counters.total_bbox_refs_written.load(), std::memory_order_relaxed);
+        print_progress_line(cfg, progress_state);
+        std::cerr << "\n";
+    }
+
+    const auto finished_clock = std::chrono::steady_clock::now();
+
+    Phase1RunResult result;
+    result.started_at_ms = started_at_ms;
+    result.started_at_iso = started_at_iso;
+    result.finished_at_ms = spatial_metadata::unix_time_ms();
+    result.finished_at_iso = spatial_metadata::iso_utc_now();
+    result.duration_ms = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            finished_clock - started_clock)
+            .count());
+    result.nodes_scanned = counters.nodes_seen.load();
+    result.ways_scanned = counters.ways_seen.load();
+    result.ways_matched = counters.ways_matched.load();
+    result.bbox_refs_written = counters.total_bbox_refs_written.load();
+    return result;
+}
+
+static void write_phase1_metadata(
+    const Config &cfg,
+    const spatial_metadata::InputMetadata &input_meta,
+    const Phase1RunResult &run_result,
+    int argc,
+    char **argv)
+{
+    spatial_metadata::GenerationMetadata generation_meta;
+    generation_meta.started_at_ms = run_result.started_at_ms;
+    generation_meta.started_at_iso = run_result.started_at_iso;
+    generation_meta.finished_at_ms = run_result.finished_at_ms;
+    generation_meta.finished_at_iso = run_result.finished_at_iso;
+    generation_meta.duration_ms = run_result.duration_ms;
+    generation_meta.ways_seen = run_result.ways_scanned;
+    generation_meta.ways_matched = run_result.ways_matched;
+    generation_meta.bbox_refs_written = run_result.bbox_refs_written;
+    generation_meta.phase_command = spatial_metadata::join_command_line(argc, argv);
+    generation_meta.git_commit = spatial_metadata::git_commit_from_cwd();
+
+    const spatial_metadata::OutputMetadata output_meta =
+        spatial_metadata::collect_output_metadata(cfg.out_dir);
+
+    spatial_metadata::MetadataConfig metadata_cfg;
+    metadata_cfg.generator = "phase1_spatial_index";
+    metadata_cfg.input_file = cfg.input_file;
+    metadata_cfg.out_dir = cfg.out_dir;
+    metadata_cfg.metadata_file_name = "phase1_config.json";
+    metadata_cfg.command_field_name = "phase1Command";
+    metadata_cfg.bbox_size = cfg.bbox_size;
+    metadata_cfg.tile_size = cfg.tile_size;
+    metadata_cfg.precision = cfg.precision;
+    metadata_cfg.flush_every = cfg.flush_every;
+    metadata_cfg.worker_threads = cfg.worker_threads;
+    metadata_cfg.queue_capacity = cfg.queue_capacity;
+
+    spatial_metadata::write_metadata_file(
+        metadata_cfg,
+        input_meta,
+        output_meta,
+        generation_meta,
+        [](std::ostream &out)
+        {
+            write_filter_summary(out);
+        });
+}
+
 int main(int argc, char **argv)
 {
     try
@@ -1107,185 +1344,9 @@ int main(int argc, char **argv)
         const Config cfg = parse_args(argc, argv);
         const spatial_metadata::InputMetadata input_meta =
             spatial_metadata::collect_input_metadata(cfg.input_file);
-        const auto started_clock = std::chrono::steady_clock::now();
-        const std::uint64_t started_at_ms = spatial_metadata::unix_time_ms();
-        const std::string started_at_iso = spatial_metadata::iso_utc_now();
-
-        ProgressState progress_state;
-        std::atomic<std::uint64_t> ways_seen{0};
-        std::atomic<std::uint64_t> nodes_seen{0};
-        std::atomic<std::uint64_t> ways_matched{0};
-        std::atomic<std::uint64_t> seq_counter{0};
-        std::atomic<std::uint64_t> total_bbox_refs_written{0};
-
-        if (cfg.progress_mode == Config::ProgressMode::count)
-        {
-            std::cerr << "Pre-counting nodes and ways for accurate progress...\n";
-            std::atomic<std::uint64_t> total_nodes{0};
-            std::atomic<std::uint64_t> total_ways{0};
-            CountOnlyHandler counter(total_nodes, total_ways);
-
-            osmium::io::File count_file{cfg.input_file};
-            osmium::io::Reader count_reader{
-                count_file,
-                osmium::osm_entity_bits::node | osmium::osm_entity_bits::way};
-
-            while (auto buffer = count_reader.read())
-            {
-                osmium::apply(buffer, counter);
-            }
-            count_reader.close();
-
-            progress_state.total_nodes.store(total_nodes.load(), std::memory_order_relaxed);
-            progress_state.total_ways.store(total_ways.load(), std::memory_order_relaxed);
-
-            std::cerr << "Pre-count complete: nodes=" << total_nodes.load()
-                      << ", ways=" << total_ways.load() << "\n";
-        }
-
-        BlockingQueue<WorkItem> work_queue(cfg.queue_capacity);
-        BlockingQueue<WorkerResult> result_queue(cfg.queue_capacity);
-
-        std::cerr << "Reading input: " << cfg.input_file << "\n";
-        std::cerr << "Output directory: " << cfg.out_dir << "\n";
-        std::cerr << "bbox-size=" << cfg.bbox_size
-                  << " | tile-size=" << cfg.tile_size
-                  << " | threads=" << cfg.worker_threads
-                  << " | queue-capacity=" << cfg.queue_capacity
-                  << " | flush-every=" << cfg.flush_every << "\n";
-
-        std::thread writer_thread(
-            writer_loop,
-            std::cref(cfg),
-            std::ref(result_queue),
-            std::ref(total_bbox_refs_written),
-            cfg.progress_mode == Config::ProgressMode::none ? nullptr : &progress_state);
-
-        std::vector<std::thread> workers;
-        workers.reserve(cfg.worker_threads);
-        for (std::size_t i = 0; i < cfg.worker_threads; ++i)
-        {
-            workers.emplace_back(
-                worker_loop,
-                std::cref(cfg),
-                std::ref(work_queue),
-                std::ref(result_queue));
-        }
-
-        using index_type =
-            osmium::index::map::SparseMemArray<osmium::unsigned_object_id_type, osmium::Location>;
-        using location_handler_type =
-            osmium::handler::NodeLocationsForWays<index_type>;
-
-        osmium::io::File infile{cfg.input_file};
-        osmium::io::Reader reader{
-            infile,
-            osmium::osm_entity_bits::node | osmium::osm_entity_bits::way};
-
-        index_type index;
-        location_handler_type location_handler{index};
-        location_handler.ignore_errors();
-
-        progress_state.file_size.store(reader.file_size(), std::memory_order_relaxed);
-        ProducerHandler producer(work_queue, nodes_seen, ways_seen, ways_matched, seq_counter);
-
-        auto last_progress_update = std::chrono::steady_clock::now();
-        while (auto buffer = reader.read())
-        {
-            osmium::apply(buffer, location_handler, producer);
-
-            progress_state.bytes_read.store(reader.offset(), std::memory_order_relaxed);
-            progress_state.nodes_seen.store(nodes_seen.load(), std::memory_order_relaxed);
-            progress_state.ways_seen.store(ways_seen.load(), std::memory_order_relaxed);
-            progress_state.ways_matched.store(ways_matched.load(), std::memory_order_relaxed);
-
-            if (cfg.progress_mode != Config::ProgressMode::none)
-            {
-                const auto now = std::chrono::steady_clock::now();
-                const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                            now - last_progress_update)
-                                            .count();
-                if (elapsed_ms >= static_cast<long long>(cfg.progress_interval_ms))
-                {
-                    print_progress_line(cfg, progress_state);
-                    last_progress_update = now;
-                }
-            }
-        }
-        reader.close();
-
-        progress_state.bytes_read.store(reader.offset(), std::memory_order_relaxed);
-        progress_state.nodes_seen.store(nodes_seen.load(), std::memory_order_relaxed);
-        progress_state.ways_seen.store(ways_seen.load(), std::memory_order_relaxed);
-        progress_state.ways_matched.store(ways_matched.load(), std::memory_order_relaxed);
-
-        work_queue.close();
-
-        for (auto &t : workers)
-            t.join();
-
-        result_queue.close();
-        writer_thread.join();
-
-        if (cfg.progress_mode != Config::ProgressMode::none)
-        {
-            progress_state.ways_written.store(ways_matched.load(), std::memory_order_relaxed);
-            progress_state.bbox_refs_written.store(
-                total_bbox_refs_written.load(), std::memory_order_relaxed);
-            print_progress_line(cfg, progress_state);
-            std::cerr << "\n";
-        }
-
-        std::cerr << "Phase 1 complete.\n";
-        std::cerr << "- nodes scanned: " << nodes_seen.load() << "\n";
-        std::cerr << "- ways scanned: " << ways_seen.load() << "\n";
-        std::cerr << "- ways matched: " << ways_matched.load() << "\n";
-        std::cerr << "- bbox refs written: " << total_bbox_refs_written.load() << "\n";
-
-        const auto finished_clock = std::chrono::steady_clock::now();
-        const std::uint64_t finished_at_ms = spatial_metadata::unix_time_ms();
-        const std::string finished_at_iso = spatial_metadata::iso_utc_now();
-
-        spatial_metadata::GenerationMetadata generation_meta;
-        generation_meta.started_at_ms = started_at_ms;
-        generation_meta.started_at_iso = started_at_iso;
-        generation_meta.finished_at_ms = finished_at_ms;
-        generation_meta.finished_at_iso = finished_at_iso;
-        generation_meta.duration_ms = static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                finished_clock - started_clock)
-                .count());
-        generation_meta.ways_seen = ways_seen.load();
-        generation_meta.ways_matched = ways_matched.load();
-        generation_meta.bbox_refs_written = total_bbox_refs_written.load();
-        generation_meta.phase_command = spatial_metadata::join_command_line(argc, argv);
-        generation_meta.git_commit = spatial_metadata::git_commit_from_cwd();
-
-        const spatial_metadata::OutputMetadata output_meta =
-            spatial_metadata::collect_output_metadata(cfg.out_dir);
-
-        spatial_metadata::MetadataConfig metadata_cfg;
-        metadata_cfg.generator = "phase1_spatial_index";
-        metadata_cfg.input_file = cfg.input_file;
-        metadata_cfg.out_dir = cfg.out_dir;
-        metadata_cfg.metadata_file_name = "phase1_config.json";
-        metadata_cfg.command_field_name = "phase1Command";
-        metadata_cfg.bbox_size = cfg.bbox_size;
-        metadata_cfg.tile_size = cfg.tile_size;
-        metadata_cfg.precision = cfg.precision;
-        metadata_cfg.flush_every = cfg.flush_every;
-        metadata_cfg.worker_threads = cfg.worker_threads;
-        metadata_cfg.queue_capacity = cfg.queue_capacity;
-
-        spatial_metadata::write_metadata_file(
-            metadata_cfg,
-            input_meta,
-            output_meta,
-            generation_meta,
-            [](std::ostream &out)
-            {
-                write_filter_summary(out);
-            });
+        const Phase1RunResult run_result = run_phase1_pipeline(cfg);
+        print_phase1_completion_summary(run_result);
+        write_phase1_metadata(cfg, input_meta, run_result, argc, argv);
         return 0;
     }
     catch (const HelpRequested &help)
