@@ -41,19 +41,36 @@ fail() {
   exit 1
 }
 
+load_default_env_file() {
+  [ -f "$1" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ''|'#'*) continue ;;
+    esac
+
+    key=${line%%=*}
+    value=${line#*=}
+
+    case "$key" in
+      ''|*[!A-Za-z0-9_]*)
+        continue
+        ;;
+    esac
+
+    eval "is_set=\${$key+x}"
+    if [ -z "$is_set" ]; then
+      export "$key=$value"
+    fi
+  done < "$1"
+}
+
 if [ -f "$DOCKER_ENV_FILE" ]; then
-  # shellcheck disable=SC1090
-  set -a
-  . "$DOCKER_ENV_FILE"
-  set +a
+  load_default_env_file "$DOCKER_ENV_FILE"
 fi
 
 CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$CARGO_TOML" | head -n 1)"
 [ -n "$CARGO_VERSION" ] || fail "impossible de lire la version depuis backend/Cargo.toml"
-
-IMAGE_NAME="${IMAGE_NAME:-routecraft}"
-APP_VERSION="${APP_VERSION:-$CARGO_VERSION}"
-[ "$APP_VERSION" = "$CARGO_VERSION" ] || fail "APP_VERSION doit correspondre à backend/Cargo.toml ($CARGO_VERSION)"
 
 BUILD_NUMBER="${BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-${CI_PIPELINE_IID:-${CI_BUILD_NUMBER:-}}}}"
 GIT_SHA="${GIT_SHA:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown')}"
@@ -63,6 +80,17 @@ GIT_TAG="${GIT_TAG:-$(git describe --tags --exact-match 2>/dev/null || true)}"
 GIT_DIRTY="${GIT_DIRTY:-$(if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then printf true; else printf false; fi)}"
 RELEASE_BUILD="${RELEASE_BUILD:-false}"
 BUILD_PUSH="${BUILD_PUSH:-false}"
+
+IMAGE_NAME="${IMAGE_NAME:-routecraft}"
+REQUESTED_APP_VERSION="${APP_VERSION:-}"
+if [ -n "$REQUESTED_APP_VERSION" ] && [ "$REQUESTED_APP_VERSION" != "$CARGO_VERSION" ]; then
+  if is_true "$RELEASE_BUILD"; then
+    fail "APP_VERSION doit correspondre à backend/Cargo.toml ($CARGO_VERSION)"
+  fi
+  printf 'scripts/build.sh: ignoring APP_VERSION=%s, using backend/Cargo.toml version %s\n' \
+    "$REQUESTED_APP_VERSION" "$CARGO_VERSION" >&2
+fi
+APP_VERSION="$CARGO_VERSION"
 
 if is_true "$RELEASE_BUILD"; then
   EXPECTED_TAG="v$APP_VERSION"
