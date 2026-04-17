@@ -3,6 +3,8 @@ services:
     image: ${IMAGE_NAME:-routecraft}:${APP_VERSION:-latest}
     pull_policy: ${PULL_POLICY:-always}
     container_name: routecraft
+    # volumes:
+    #   - ./spatial_cache:/app/spatial_cache:ro
     networks:
       - shared_network
     restart: unless-stopped
