@@ -444,6 +444,14 @@ sudo docker load -i routecraft.tar
 sudo docker compose up -d
 ```
 
+`.docker.env` is intended for Docker build defaults, for example:
+
+```env
+IMAGE_NAME=ghcr.io/vitoldka/routecraft
+# DOCKER_PLATFORM=linux/amd64
+# BUILD_PUSH=true
+```
+
 ---
 
 ## 🔧 Build C++ Tools

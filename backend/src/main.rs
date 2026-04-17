@@ -28,6 +28,9 @@ async fn main() -> std::io::Result<()> {
 
 #[get("/api/version")]
 async fn version() -> HttpResponse {
-    let v = std::env::var("APP_VERSION").unwrap_or_else(|_| "unknown".into());
+    let v = std::env::var("APP_VERSION")
+        .ok()
+        .or_else(|| option_env!("APP_VERSION").map(ToOwned::to_owned))
+        .unwrap_or_else(|| "unknown".into());
     HttpResponse::Ok().content_type("text/plain").body(v)
 }
