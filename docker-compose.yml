@@ -1,13 +1,17 @@
 services:
   web:
-    image: "RouteCraft"
+    image: ${IMAGE_NAME:-routecraft}:${APP_VERSION:-latest}
+    pull_policy: ${PULL_POLICY:-always}
+    container_name: routecraft
     networks:
       - shared_network
-    restart: always
+    restart: unless-stopped
     logging:
       options:
         max-size: "1m"
         max-file: "5"
+    # ports:
+    #   - "${PORT:-8080}:8080"
 
 networks:
   shared_network:

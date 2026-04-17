@@ -1,0 +1,13 @@
+services:
+  build:
+    image: ${IMAGE_NAME:-routecraft}:${APP_VERSION:?APP_VERSION must be set}
+    pull_policy: never
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:?APP_VERSION must be set}
+        BUILD_NUMBER: ${BUILD_NUMBER:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        GIT_URL: ${GIT_URL:-unknown}
+        GIT_SHA: ${GIT_SHA:-unknown}
+        GIT_DIRTY: ${GIT_DIRTY:-false}
